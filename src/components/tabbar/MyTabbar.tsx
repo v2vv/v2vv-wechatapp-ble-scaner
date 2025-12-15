@@ -1,5 +1,12 @@
-import { Tabbar } from '@nutui/nutui-react-taro'
-import { Cart, HeartFill, Heart, Hi, Home, User } from '@nutui/icons-react-taro'
+import { Tabbar } from "@nutui/nutui-react-taro";
+import {
+  Cart,
+  HeartFill,
+  Heart,
+  Hi,
+  Home,
+  User,
+} from "@nutui/icons-react-taro";
 
 const MyTabbar = () => {
   return (
@@ -13,7 +20,7 @@ const MyTabbar = () => {
       <Tabbar.Item title="购物车" icon={<Cart />} />
       <Tabbar.Item title="我的" icon={<User />} />
     </Tabbar>
-  )
-}
+  );
+};
 
-export default MyTabbar
+export default MyTabbar;

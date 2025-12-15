@@ -1,9 +1,13 @@
-import MyTabbar from '../../components/tabbar/MyTabbar'
+import MyTabbar from "../../components/tabbar/MyTabbar";
+import Scaner from "../scaner/Scaner";
 
 const Index = () => {
   return (
-    <MyTabbar />
-  )
-}
+    <>
+      <Scaner></Scaner>
+      <MyTabbar />
+    </>
+  );
+};
 
-export default Index
+export default Index;
