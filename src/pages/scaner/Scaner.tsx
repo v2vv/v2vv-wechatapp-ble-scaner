@@ -1,166 +1,197 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Taro from "@tarojs/taro";
 import BLEService from "../../lib/bluetooth/bleService";
-import { Collapse, CollapseItem } from "@nutui/nutui-react-taro";
 
 export default function Index() {
   const [deviceList, setDeviceList] = useState([]);
-  const [connectedId, setConnectedId] = useState(null);
-  const [serviceList, setServiceList] = useState([]);
-  const [notifyValue, setNotifyValue] = useState("");
+  const [notifyMap, setNotifyMap] = useState({});
+  const [autoConnectEnabled, setAutoConnectEnabled] = useState(false);
 
-  // ✅ 每个特征的输入框内容
-  const [writeInputs, setWriteInputs] = useState({});
+  const connectedSet = useRef(new Set());
+  const autoConnectRef = useRef(false);
 
-  const updateWriteInput = (charId, value) => {
-    setWriteInputs((prev) => ({
-      ...prev,
-      [charId]: value,
-    }));
-  };
-
-  // ✅ 初始化 BLE
   useEffect(() => {
-    async function initBLE() {
-      await BLEService.initBluetooth();
-      await BLEService.startDiscovery();
+    autoConnectRef.current = autoConnectEnabled;
+  }, [autoConnectEnabled]);
 
-      BLEService.onDeviceFound((devices) => {
-        setDeviceList((prev) => {
-          let list = [...prev];
-
-          devices.forEach((d) => {
-            if (!d.name || !d.name.startsWith("632")) return;
-
-            const exists = list.find((i) => i.deviceId === d.deviceId);
-            if (!exists) list.push(d);
-            else exists.RSSI = d.RSSI;
-          });
-
-          return list;
-        });
-      });
-
-      BLEService.onDisconnect((deviceId) => {
-        if (deviceId === connectedId) {
-          setConnectedId(null);
-          setServiceList([]);
-          setNotifyValue("");
-        }
-      });
-    }
-
+  useEffect(() => {
     initBLE();
   }, []);
 
-  // ✅ 每秒刷新 RSSI
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setDeviceList((prev) => [...prev].sort((a, b) => b.RSSI - a.RSSI));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const initBLE = async () => {
+    await BLEService.initBluetooth();
+    await BLEService.startDiscovery();
 
-  // ✅ 判断系统服务
-  const isSystemService = (uuid) => {
-    uuid = uuid.toUpperCase();
-    return uuid.startsWith("00001800") || uuid.startsWith("00001801");
-  };
+    /** ✅ BLEService 通知断开 → 强制清除 */
+    BLEService.onDisconnect((deviceId) => {
+      console.log("⚠️ UI 收到断开:", deviceId);
+      removeDevice(deviceId);
+    });
 
-  // ✅ 连接设备
-  const handleConnect = async (deviceId) => {
-    await BLEService.connect(deviceId);
-    setConnectedId(deviceId);
+    /** ✅ 扫描设备 */
+    BLEService.onDeviceFound((devices) => {
+      setDeviceList((prev) => {
+        const list = [...prev];
 
-    const services = await BLEService.getServices(deviceId);
-    const result = [];
+        devices.forEach((d) => {
+          if (!d.name || !d.name.startsWith("632")) return;
 
-    for (const s of services) {
-      if (isSystemService(s.uuid)) continue;
+          d.lastSeen = Date.now();
 
-      try {
-        const chars = await BLEService.getCharacteristics(deviceId, s.uuid);
+          const exists = list.find((i) => i.deviceId === d.deviceId);
 
-        result.push({
-          serviceId: s.uuid,
-          characteristics: chars,
+          if (!exists) {
+            list.push(d);
+
+            if (autoConnectRef.current) {
+              handleConnect(d.deviceId);
+            }
+          } else {
+            exists.RSSI = d.RSSI;
+            exists.lastSeen = Date.now();
+          }
         });
-      } catch {}
-    }
 
-    setServiceList(result);
+        return [...list];
+      });
+    });
 
-    // ✅ 自动开启 A950 Notify
-    enableA950Notify(deviceId, result);
-  };
-
-  // ✅ 自动识别并开启 A950 Notify
-  const enableA950Notify = async (deviceId, services) => {
-    const svc = services.find((s) => s.serviceId.includes("FFF0"));
-    if (!svc) return;
-
-    const notifyChar = svc.characteristics.find((c) => c.uuid.includes("FFF1"));
-    if (!notifyChar) return;
-
-    await BLEService.notify(deviceId, svc.serviceId, notifyChar.uuid);
-    console.log("✅ A950 Notify 已开启");
-  };
-
-  // ✅ 监听通知（更新悬浮窗）
-  useEffect(() => {
+    /** ✅ Notify 分发 */
     BLEService.onNotify((res) => {
       const hex = [...new Uint8Array(res.value)]
         .map((x) => x.toString(16).padStart(2, "0"))
         .join(" ");
 
-      console.log("📩 A950 通知:", hex);
-      setNotifyValue(hex);
+      setNotifyMap((prev) => ({
+        ...prev,
+        [res.deviceId]: hex,
+      }));
     });
-  }, []);
-
-  const sendA950Data = async (serviceId, charId) => {
-    const hex = (writeInputs[charId] || "").replace(/\s+/g, "").toUpperCase();
-
-    if (!hex) {
-      console.log("⚠️ 输入为空");
-      return;
-    }
-
-    if (hex.length % 2 !== 0) {
-      console.log("❌ Hex 长度必须为偶数");
-      return;
-    }
-
-    // ✅ 直接把 Hex 转成 ArrayBuffer（BLE 必须）
-    const buffer = new ArrayBuffer(hex.length / 2);
-    const dataView = new DataView(buffer);
-
-    for (let i = 0; i < hex.length; i += 2) {
-      dataView.setUint8(i / 2, parseInt(hex.substr(i, 2), 16));
-    }
-
-    await BLEService.write(serviceId, charId, buffer);
-
-    console.log("✅ 已发送原始 Hex:", hex);
   };
 
-  // ✅ 断开
+  /** ✅ 未连接设备才用 lastSeen 判断 */
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
+
+      setDeviceList((prev) => {
+        return prev.filter((d) => {
+          const isConnected = connectedSet.current.has(d.deviceId);
+
+          if (isConnected) return true; // ✅ 已连接设备不使用 lastSeen
+
+          const alive = now - d.lastSeen < 3000;
+          if (!alive) removeDevice(d.deviceId);
+          return alive;
+        });
+      });
+    }, 2000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  /** ✅ 主动探测断开（核心：快速清除） */
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      for (const deviceId of connectedSet.current) {
+        try {
+          await Taro.getBLEDeviceRSSI({ deviceId });
+          // ✅ 设备正常
+        } catch (err) {
+          console.log("⚠️ RSSI 探测失败 → 判定断开:", deviceId);
+          removeDevice(deviceId);
+        }
+      }
+    }, 2000); // ✅ 每 2 秒探测一次即可
+
+    return () => clearInterval(timer);
+  }, []);
+
+  /** ✅ 幂等清除设备 */
+  const removeDevice = (deviceId) => {
+    connectedSet.current.delete(deviceId);
+
+    setNotifyMap((prev) => {
+      const newMap = { ...prev };
+      delete newMap[deviceId];
+      return newMap;
+    });
+
+    setDeviceList((prev) => prev.filter((d) => d.deviceId !== deviceId));
+  };
+
+  /** ✅ 连接设备 */
+  const handleConnect = async (deviceId) => {
+    if (connectedSet.current.has(deviceId)) return;
+
+    await BLEService.connect(deviceId);
+    connectedSet.current.add(deviceId);
+
+    await enableNotify(deviceId);
+  };
+
+  /** ✅ 开启 Notify */
+  const enableNotify = async (deviceId) => {
+    const services = await BLEService.getServices(deviceId);
+    if (!services) return;
+
+    const svc = services.find((s) => s.uuid.includes("FFF0"));
+    if (!svc) return;
+
+    const chars = await BLEService.getCharacteristics(deviceId, svc.uuid);
+    const notifyChar = chars.find((c) => c.uuid.includes("FFF1"));
+    if (!notifyChar) return;
+
+    await BLEService.notify(deviceId, svc.uuid, notifyChar.uuid);
+  };
+
+  /** ✅ 自动连接所有设备 */
+  const autoConnectAllDevices = async () => {
+    setAutoConnectEnabled(true);
+
+    for (const dev of deviceList) {
+      if (dev.name?.startsWith("632")) {
+        await handleConnect(dev.deviceId);
+      }
+    }
+  };
+
+  /** ✅ 手动断开 */
   const handleDisconnect = async (deviceId) => {
     await BLEService.disconnect(deviceId);
-    setConnectedId(null);
-    setServiceList([]);
-    setNotifyValue("");
+    removeDevice(deviceId);
+  };
+
+  /** ✅ 写入固定字符 */
+  const sendA950FixedText = async (deviceId) => {
+    const buffer = new TextEncoder().encode("Hello A950").buffer;
+    await BLEService.write(deviceId, "FFF0", "FFF2", buffer);
   };
 
   return (
-    <view>
-      <view style={{ fontSize: "18px", fontWeight: "bold" }}>BLE 测试页面</view>
+    <view style={{ padding: "16px" }}>
+      <view style={{ fontSize: "18px", fontWeight: "bold" }}>
+        BLE 多设备测试页面
+      </view>
 
-      {/* ✅ 设备列表 */}
+      <button
+        style={{
+          marginTop: "16px",
+          backgroundColor: "#722ed1",
+          color: "#fff",
+          padding: "8px 14px",
+          borderRadius: "6px",
+        }}
+        onClick={autoConnectAllDevices}
+      >
+        ⚡ 自动连接所有 632 设备（持续）
+      </button>
+
       <view style={{ marginTop: "20px" }}>
         <view>扫描到的设备（632 开头）：</view>
 
         {deviceList.map((item) => {
-          const isConnected = item.deviceId === connectedId;
+          const isConnected = connectedSet.current.has(item.deviceId);
 
           return (
             <view
@@ -176,16 +207,44 @@ export default function Index() {
               <view>RSSI：{item.RSSI}</view>
 
               {isConnected ? (
-                <button
-                  style={{
-                    marginTop: "8px",
-                    backgroundColor: "#ff4d4f",
-                    color: "#fff",
-                  }}
-                  onClick={() => handleDisconnect(item.deviceId)}
-                >
-                  断开连接
-                </button>
+                <>
+                  <button
+                    style={{
+                      marginTop: "8px",
+                      backgroundColor: "#ff4d4f",
+                      color: "#fff",
+                    }}
+                    onClick={() => handleDisconnect(item.deviceId)}
+                  >
+                    断开连接
+                  </button>
+
+                  <button
+                    style={{
+                      marginTop: "8px",
+                      backgroundColor: "#1677ff",
+                      color: "#fff",
+                    }}
+                    onClick={() => sendA950FixedText(item.deviceId)}
+                  >
+                    发送固定字符
+                  </button>
+
+                  {notifyMap[item.deviceId] && (
+                    <view
+                      style={{
+                        marginTop: "8px",
+                        backgroundColor: "#000",
+                        color: "#fff",
+                        padding: "6px 10px",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                      }}
+                    >
+                      通知：{notifyMap[item.deviceId]}
+                    </view>
+                  )}
+                </>
               ) : (
                 <button
                   style={{
@@ -202,103 +261,6 @@ export default function Index() {
           );
         })}
       </view>
-
-      {/* ✅ 服务折叠展示 */}
-      {connectedId && (
-        <view style={{ marginTop: "20px" }}>
-          <view>设备服务与特征：</view>
-
-          {/* ✅ 整个服务列表可滚动 */}
-          <scroll-view
-            scroll-y
-            style={{
-              maxHeight: "60vh",
-              border: "1px solid #eee",
-              borderRadius: "8px",
-              padding: "6px",
-            }}
-          >
-            <Collapse defaultActiveName={[]}>
-              {serviceList.map((s) => (
-                <CollapseItem
-                  key={s.serviceId}
-                  title={`服务 UUID：${s.serviceId}`}
-                  name={s.serviceId}
-                >
-                  {/* ✅ 特征列表也可滚动 */}
-                  <scroll-view
-                    scroll-y
-                    style={{
-                      maxHeight: "250px",
-                      paddingRight: "10px",
-                    }}
-                  >
-                    {s.characteristics.map((c) => (
-                      <view key={c.uuid} style={{ padding: "10px 0" }}>
-                        <view>特征 UUID：{c.uuid}</view>
-                        <view>属性：{JSON.stringify(c.properties)}</view>
-
-                        {/* ✅ 写入输入框 + 按钮 */}
-                        {c.properties.write && (
-                          <view style={{ marginTop: "10px" }}>
-                            <input
-                              style={{
-                                width: "100%",
-                                padding: "8px",
-                                border: "1px solid #ccc",
-                                borderRadius: "6px",
-                                marginBottom: "8px",
-                              }}
-                              placeholder="输入 Hex（01 02 FF）或文本"
-                              value={writeInputs[c.uuid] || ""}
-                              onInput={(e) =>
-                                updateWriteInput(c.uuid, e.detail.value)
-                              }
-                            />
-
-                            <button
-                              style={{
-                                backgroundColor: "#1677ff",
-                                color: "#fff",
-                                padding: "6px 12px",
-                                borderRadius: "6px",
-                              }}
-                              onClick={() => sendA950Data(s.serviceId, c.uuid)}
-                            >
-                              发送
-                            </button>
-                          </view>
-                        )}
-                      </view>
-                    ))}
-                  </scroll-view>
-                </CollapseItem>
-              ))}
-            </Collapse>
-          </scroll-view>
-        </view>
-      )}
-
-      {/* ✅ 右下角悬浮窗显示通知值 */}
-      {notifyValue && (
-        <view
-          style={{
-            position: "fixed",
-            bottom: "20px",
-            right: "20px",
-            backgroundColor: "rgba(0,0,0,0.75)",
-            color: "#fff",
-            padding: "10px 14px",
-            borderRadius: "8px",
-            fontSize: "14px",
-            zIndex: 9999,
-            maxWidth: "60%",
-            wordBreak: "break-all",
-          }}
-        >
-          通知：{notifyValue}
-        </view>
-      )}
     </view>
   );
 }
