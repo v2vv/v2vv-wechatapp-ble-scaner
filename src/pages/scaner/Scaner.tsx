@@ -37,6 +37,7 @@ export default function Index() {
           if (!d.name || !d.name.startsWith("632")) return;
 
           d.lastSeen = Date.now();
+          d.missCount = 0; // ✅ 重置未出现计数
 
           const exists = list.find((i) => i.deviceId === d.deviceId);
 
@@ -49,6 +50,7 @@ export default function Index() {
           } else {
             exists.RSSI = d.RSSI;
             exists.lastSeen = Date.now();
+            exists.missCount = 0;
           }
         });
 
@@ -69,7 +71,7 @@ export default function Index() {
     });
   };
 
-  /** ✅ 未连接设备才用 lastSeen 判断 */
+  /** ✅ 未连接设备：稳定窗口判断（防跳显） */
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
@@ -80,9 +82,19 @@ export default function Index() {
 
           if (isConnected) return true; // ✅ 已连接设备不使用 lastSeen
 
-          const alive = now - d.lastSeen < 3000;
-          if (!alive) removeDevice(d.deviceId);
-          return alive;
+          // ✅ 未连接设备：超过 2 秒未出现 → missCount++
+          if (now - d.lastSeen > 2000) {
+            d.missCount = (d.missCount || 0) + 1;
+          }
+
+          // ✅ 连续 3 次未出现 → 判定消失
+          if (d.missCount >= 3) {
+            console.log("✅ 未连接设备消失:", d.deviceId);
+            removeDevice(d.deviceId);
+            return false;
+          }
+
+          return true;
         });
       });
     }, 2000);
@@ -90,7 +102,7 @@ export default function Index() {
     return () => clearInterval(timer);
   }, []);
 
-  /** ✅ 主动探测断开（核心：快速清除） */
+  /** ✅ 已连接设备：RSSI 主动探测（快速断开检测） */
   useEffect(() => {
     const timer = setInterval(async () => {
       for (const deviceId of connectedSet.current) {
@@ -102,7 +114,7 @@ export default function Index() {
           removeDevice(deviceId);
         }
       }
-    }, 2000); // ✅ 每 2 秒探测一次即可
+    }, 2000);
 
     return () => clearInterval(timer);
   }, []);
