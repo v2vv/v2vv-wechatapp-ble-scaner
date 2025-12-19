@@ -57,19 +57,27 @@ class BLEService {
   }
 
   /** 获取特征值列表 */
-  async getCharacteristics(serviceId: string) {
-    if (!this.connectedDeviceId) return
-    try {
-      const res = await Taro.getBLEDeviceCharacteristics({
-        deviceId: this.connectedDeviceId,
-        serviceId,
-      })
-      console.log('特征值列表:', res.characteristics)
-      return res.characteristics
-    } catch (err) {
-      console.error('获取特征值失败', err)
-    }
-  }
+ async getCharacteristics(deviceId: string, serviceId: string) {
+  return new Promise((resolve, reject) => {
+    Taro.getBLEDeviceCharacteristics({
+      deviceId,
+      serviceId,
+      success: (res) => {
+        resolve(res.characteristics || []);
+      },
+      fail: (err) => {
+        // ✅ 对无特征服务不报错，直接返回空数组
+        if (err.errCode === 10005) {
+          console.warn("服务无特征:", serviceId);
+          resolve([]);
+          return;
+        }
+        reject(err);
+      }
+    });
+  });
+}
+
 
   /** 写入数据 */
   async write(serviceId: string, characteristicId: string, buffer: ArrayBuffer) {
@@ -109,6 +117,27 @@ class BLEService {
       const value = new Uint8Array(res.value)
       callback(value)
     })
+  }
+
+  // ✅ 开启通知
+  notify(deviceId, serviceId, characteristicId) {
+    return new Promise((resolve, reject) => {
+      Taro.notifyBLECharacteristicValueChange({
+        deviceId,
+        serviceId,
+        characteristicId,
+        state: true,
+        success: resolve,
+        fail: reject,
+      });
+    });
+  }
+
+   // ✅ 监听通知回调
+  onNotify(callback) {
+    Taro.onBLECharacteristicValueChange((res) => {
+      callback(res);
+    });
   }
 
   /** 断开连接 */
