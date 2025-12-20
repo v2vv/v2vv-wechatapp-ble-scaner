@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Taro from "@tarojs/taro";
 import BLEService from "../../lib/bluetooth/bleService";
+import { VirtualList } from "@nutui/nutui-react-taro";
 
 export default function Index() {
   const [deviceList, setDeviceList] = useState([]);
@@ -280,68 +281,82 @@ export default function Index() {
       ))}
 
       {/* ✅ 设备列表 */}
+      {/* ✅ 设备列表（NutUI 虚拟列表） */}
       <view style={{ marginTop: "20px" }}>
-        <view>扫描到的设备（632 开头）：</view>
+        <view style={{ marginBottom: "8px", fontWeight: "bold" }}>
+          扫描到的设备（632 开头）：
+        </view>
 
-        {deviceList.map((item) => {
-          const isConnected = connectedSet.current.has(item.deviceId);
+        <VirtualList
+          height={600} // ✅ 可视区域高度（px）
+          itemHeight={180} // ✅ 每个 item 的高度（必须）
+          list={deviceList} // ✅ 数据源
+          overscan={5} // ✅ 预渲染数量（越大越流畅）
+          style={{
+            border: "1px solid #ddd",
+            borderRadius: "8px",
+            padding: "8px",
+          }}
+          itemRender={(item, index) => {
+            const isConnected = connectedSet.current.has(item.deviceId);
 
-          return (
-            <view
-              key={item.deviceId}
-              style={{
-                padding: "12px",
-                borderBottom: "1px solid #ccc",
-                backgroundColor: isConnected ? "#e6f7ff" : "transparent",
-              }}
-            >
-              <view>名称：{item.name}</view>
-              <view>ID：{item.deviceId}</view>
-              <view>RSSI：{item.RSSI}</view>
+            return (
+              <view
+                key={item.deviceId}
+                style={{
+                  padding: "12px",
+                  borderBottom: "1px solid #ccc",
+                  backgroundColor: isConnected ? "#e6f7ff" : "transparent",
+                }}
+              >
+                <view>名称：{item.name}</view>
+                <view>ID：{item.deviceId}</view>
+                <view>RSSI：{item.RSSI}</view>
 
-              {isConnected ? (
-                <>
+                {isConnected ? (
+                  <>
+                    <button
+                      style={{
+                        marginTop: "8px",
+                        backgroundColor: "#ff4d4f",
+                        color: "#fff",
+                      }}
+                      onClick={() => handleDisconnect(item.deviceId)}
+                    >
+                      断开连接
+                    </button>
+
+                    {notifyMap[item.deviceId] && (
+                      <view
+                        style={{
+                          marginTop: "8px",
+                          backgroundColor: "#000",
+                          color: "#fff",
+                          padding: "6px 10px",
+                          borderRadius: "6px",
+                          fontSize: "12px",
+                        }}
+                      >
+                        通知：{notifyMap[item.deviceId]}
+                      </view>
+                    )}
+                  </>
+                ) : (
                   <button
                     style={{
                       marginTop: "8px",
-                      backgroundColor: "#ff4d4f",
+                      backgroundColor: "#52c41a",
                       color: "#fff",
                     }}
-                    onClick={() => handleDisconnect(item.deviceId)}
+                    onClick={() => handleConnect(item.deviceId)}
                   >
-                    断开连接
+                    连接设备
                   </button>
-
-                  {notifyMap[item.deviceId] && (
-                    <view
-                      style={{
-                        marginTop: "8px",
-                        backgroundColor: "#000",
-                        color: "#fff",
-                        padding: "6px 10px",
-                        borderRadius: "6px",
-                        fontSize: "12px",
-                      }}
-                    >
-                      通知：{notifyMap[item.deviceId]}
-                    </view>
-                  )}
-                </>
-              ) : (
-                <button
-                  style={{
-                    marginTop: "8px",
-                    backgroundColor: "#52c41a",
-                    color: "#fff",
-                  }}
-                  onClick={() => handleConnect(item.deviceId)}
-                >
-                  连接设备
-                </button>
-              )}
-            </view>
-          );
-        })}
+                )}
+              </view>
+            );
+          }}
+        />
       </view>
     </view>
   );
