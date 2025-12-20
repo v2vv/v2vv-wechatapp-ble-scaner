@@ -9,14 +9,29 @@ export default function Index() {
   const [autoModeRunning, setAutoModeRunning] = useState(false);
 
   const [whiteMode, setWhiteMode] = useState(null);
-  // null = 默认
-  // "static" = 静态白灯
-  // "full" = 全白灯
-  // "rainbow" = 七彩渐变
 
   const connectedSet = useRef(new Set());
   const writtenSet = useRef(new Set());
   const autoConnectRef = useRef(false);
+
+  /** ✅ 灯光模式指令表（集中管理） */
+  const LIGHT_MODES = {
+    static: {
+      name: "静态白灯",
+      color: "#1677ff",
+      hex: "55AA020B0101FFFFFF0000006526000000",
+    },
+    full: {
+      name: "全白灯",
+      color: "#faad14",
+      hex: "55AA0837ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff016464010000",
+    },
+    rainbow: {
+      name: "七彩渐变",
+      color: "#13c2c2",
+      hex: "55AA020B03010000000000006515000000",
+    },
+  };
 
   useEffect(() => {
     autoConnectRef.current = autoConnectEnabled;
@@ -26,21 +41,19 @@ export default function Index() {
     initBLE();
   }, []);
 
+  /** ✅ BLE 初始化 */
   const initBLE = async () => {
     await BLEService.initBluetooth();
     await BLEService.startDiscovery();
 
-    BLEService.onDisconnect((deviceId) => {
-      console.log("⚠️ UI 收到断开:", deviceId);
-      removeDevice(deviceId);
-    });
+    BLEService.onDisconnect((deviceId) => removeDevice(deviceId));
 
     BLEService.onDeviceFound((devices) => {
       setDeviceList((prev) => {
         const list = [...prev];
 
         devices.forEach((d) => {
-          if (!d.name || !d.name.startsWith("632")) return;
+          if (!d.name?.startsWith("632")) return;
 
           d.lastSeen = Date.now();
           d.missCount = 0;
@@ -49,10 +62,7 @@ export default function Index() {
 
           if (!exists) {
             list.push(d);
-
-            if (autoConnectRef.current) {
-              handleConnect(d.deviceId);
-            }
+            if (autoConnectRef.current) handleConnect(d.deviceId);
           } else {
             exists.RSSI = d.RSSI;
             exists.lastSeen = Date.now();
@@ -69,50 +79,41 @@ export default function Index() {
         .map((x) => x.toString(16).padStart(2, "0"))
         .join(" ");
 
-      setNotifyMap((prev) => ({
-        ...prev,
-        [res.deviceId]: hex,
-      }));
+      setNotifyMap((prev) => ({ ...prev, [res.deviceId]: hex }));
     });
   };
 
-  /** ✅ 未连接设备：稳定窗口判断 */
+  /** ✅ 未连接设备稳定窗口 */
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
 
-      setDeviceList((prev) => {
-        return prev.filter((d) => {
-          const isConnected = connectedSet.current.has(d.deviceId);
+      setDeviceList((prev) =>
+        prev.filter((d) => {
+          if (connectedSet.current.has(d.deviceId)) return true;
 
-          if (isConnected) return true;
-
-          if (now - d.lastSeen > 2000) {
-            d.missCount = (d.missCount || 0) + 1;
-          }
+          if (now - d.lastSeen > 2000) d.missCount++;
 
           if (d.missCount >= 3) {
-            console.log("✅ 未连接设备消失:", d.deviceId);
             removeDevice(d.deviceId);
             return false;
           }
 
           return true;
-        });
-      });
+        })
+      );
     }, 2000);
 
     return () => clearInterval(timer);
   }, []);
 
-  /** ✅ 已连接设备：RSSI 主动探测 */
+  /** ✅ 已连接设备 RSSI 探测 */
   useEffect(() => {
     const timer = setInterval(async () => {
       for (const deviceId of connectedSet.current) {
         try {
           await Taro.getBLEDeviceRSSI({ deviceId });
-        } catch (err) {
-          console.log("⚠️ RSSI 探测失败 → 判定断开:", deviceId);
+        } catch {
           removeDevice(deviceId);
         }
       }
@@ -127,15 +128,15 @@ export default function Index() {
     writtenSet.current.delete(deviceId);
 
     setNotifyMap((prev) => {
-      const newMap = { ...prev };
-      delete newMap[deviceId];
-      return newMap;
+      const m = { ...prev };
+      delete m[deviceId];
+      return m;
     });
 
     setDeviceList((prev) => prev.filter((d) => d.deviceId !== deviceId));
   };
 
-  /** ✅ 写入 A951 字段 */
+  /** ✅ 写入 A951（统一写入函数） */
   const writeA951 = async (deviceId, hex) => {
     const buffer = new Uint8Array(
       hex.match(/.{2}/g).map((b) => parseInt(b, 16))
@@ -153,19 +154,32 @@ export default function Index() {
       if (!writeChar) return;
 
       await BLEService.write(deviceId, svc.uuid, writeChar.uuid, buffer);
-      console.log("✅ A951 写入成功:", deviceId);
     } catch (err) {
-      console.log("⚠️ A951 写入失败:", deviceId, err);
+      console.log("⚠️ 写入失败:", deviceId, err);
     }
   };
 
+  /** ✅ 写入灯光模式（统一入口） */
+  const writeMode = async (modeKey) => {
+    const mode = LIGHT_MODES[modeKey];
+    if (!mode) return;
+
+    const tasks = [];
+    for (const deviceId of connectedSet.current) {
+      tasks.push(writeA951(deviceId, mode.hex));
+    }
+
+    await Promise.all(tasks);
+    setWhiteMode(modeKey);
+  };
+
   /** ✅ 自动写入（新设备连接） */
-  const sendA950ToDevice = (deviceId) => {
-    const hex = "55AA020B0101FFFFFF0000006526000000";
+  const autoWrite = (deviceId) => {
+    const hex = LIGHT_MODES.static.hex;
     writeA951(deviceId, hex);
   };
 
-  /** ✅ 连接设备（自动写入） */
+  /** ✅ 连接设备 */
   const handleConnect = async (deviceId) => {
     if (connectedSet.current.has(deviceId)) return;
 
@@ -176,7 +190,7 @@ export default function Index() {
 
     if (autoModeRunning && !writtenSet.current.has(deviceId)) {
       writtenSet.current.add(deviceId);
-      sendA950ToDevice(deviceId);
+      autoWrite(deviceId);
     }
   };
 
@@ -199,76 +213,26 @@ export default function Index() {
     await BLEService.notify(deviceId, svc.uuid, notifyChar.uuid);
   };
 
-  /** ✅ 自动模式：一键连接 / 一键断开 */
+  /** ✅ 自动模式 */
   const toggleAutoMode = async () => {
     if (!autoModeRunning) {
       setAutoModeRunning(true);
       setAutoConnectEnabled(true);
 
       for (const dev of deviceList) {
-        if (dev.name?.startsWith("632")) {
-          await handleConnect(dev.deviceId);
-        }
+        if (dev.name?.startsWith("632")) await handleConnect(dev.deviceId);
       }
-
-      console.log("✅ 自动模式已开启");
     } else {
       setAutoModeRunning(false);
       setAutoConnectEnabled(false);
 
-      const list = Array.from(connectedSet.current);
-      for (const deviceId of list) {
+      for (const deviceId of Array.from(connectedSet.current)) {
         try {
           await BLEService.disconnect(deviceId);
         } catch {}
         removeDevice(deviceId);
       }
-
-      console.log("✅ 自动模式已关闭");
     }
-  };
-
-  /** ✅ 静态白灯 */
-  const sendStaticWhite = async () => {
-    const hex = "55AA020B0101FFFFFF0000006526000000";
-
-    const tasks = [];
-    for (const deviceId of connectedSet.current) {
-      tasks.push(writeA951(deviceId, hex));
-    }
-
-    await Promise.all(tasks);
-    setWhiteMode("static");
-    console.log("✅ 静态白灯写入完成");
-  };
-
-  /** ✅ 全白灯 */
-  const sendFullWhite = async () => {
-    const hex =
-      "55AA0837ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff016464010000";
-
-    const tasks = [];
-    for (const deviceId of connectedSet.current) {
-      tasks.push(writeA951(deviceId, hex));
-    }
-
-    await Promise.all(tasks);
-    setWhiteMode("full");
-    console.log("✅ 全白灯写入完成");
-  };
-
-  /** ✅ 七彩渐变 */
-  const sendRainbow = async () => {
-    const hex = "55AA020B03010000000000006515000000";
-
-    const tasks = [];
-    for (const deviceId of connectedSet.current) {
-      tasks.push(writeA951(deviceId, hex));
-    }
-
-    await Promise.all(tasks);
-    setWhiteMode("rainbow");
-    console.log("✅ 七彩渐变写入完成");
   };
 
   /** ✅ 手动断开 */
@@ -280,10 +244,10 @@ export default function Index() {
   return (
     <view style={{ padding: "16px" }}>
       <view style={{ fontSize: "18px", fontWeight: "bold" }}>
-        BLE 多设备测试页面
+        BLE 多设备测试页面（优化版）
       </view>
 
-      {/* ✅ 自动模式按钮 */}
+      {/* ✅ 自动模式 */}
       <button
         style={{
           marginTop: "16px",
@@ -294,62 +258,28 @@ export default function Index() {
         }}
         onClick={toggleAutoMode}
       >
-        {autoModeRunning
-          ? "🔌 停止自动模式（断开所有设备）"
-          : "⚡ 启动自动模式（自动连接 + 自动写入）"}
+        {autoModeRunning ? "🔌 停止自动模式" : "⚡ 启动自动模式"}
       </button>
 
-      {/* ✅ 静态白灯 */}
-      <button
-        style={{
-          marginTop: "16px",
-          backgroundColor: whiteMode === "static" ? "#1677ff" : "#666",
-          color: "#fff",
-          padding: "8px 14px",
-          borderRadius: "6px",
-        }}
-        onClick={() => {
-          sendStaticWhite();
-          setWhiteMode("static");
-        }}
-      >
-        静态白灯
-      </button>
+      {/* ✅ 灯光模式按钮（自动生成） */}
+      {Object.entries(LIGHT_MODES).map(([key, mode]) => (
+        <button
+          key={key}
+          style={{
+            marginTop: "16px",
+            backgroundColor: whiteMode === key ? mode.color : "#666",
+            color: "#fff",
+            padding: "8px 14px",
+            borderRadius: "6px",
+            display: "block",
+          }}
+          onClick={() => writeMode(key)}
+        >
+          {mode.name}
+        </button>
+      ))}
 
-      {/* ✅ 全白灯 */}
-      <button
-        style={{
-          marginTop: "16px",
-          backgroundColor: whiteMode === "full" ? "#faad14" : "#666",
-          color: "#fff",
-          padding: "8px 14px",
-          borderRadius: "6px",
-        }}
-        onClick={() => {
-          sendFullWhite();
-          setWhiteMode("full");
-        }}
-      >
-        全白灯
-      </button>
-
-      {/* ✅ 七彩渐变 */}
-      <button
-        style={{
-          marginTop: "16px",
-          backgroundColor: whiteMode === "rainbow" ? "#13c2c2" : "#666",
-          color: "#fff",
-          padding: "8px 14px",
-          borderRadius: "6px",
-        }}
-        onClick={() => {
-          sendRainbow();
-          setWhiteMode("rainbow");
-        }}
-      >
-        七彩渐变
-      </button>
-
+      {/* ✅ 设备列表 */}
       <view style={{ marginTop: "20px" }}>
         <view>扫描到的设备（632 开头）：</view>
 
