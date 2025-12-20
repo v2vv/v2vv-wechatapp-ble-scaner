@@ -1,0 +1,322 @@
+.scaner-page {
+  min-height: 100vh;
+  background-color: #f5f7fa;
+  box-sizing: border-box;
+  padding-bottom: 40px;
+
+  /* Import a nice font if possible, otherwise rely on system stack */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+.header {
+  padding: 24px 20px;
+  background: white;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+
+  .title {
+    font-size: 22px;
+    font-weight: 800;
+    color: #1f1f1f;
+    letter-spacing: -0.5px;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    font-size: 13px;
+    color: #8c8c8c;
+  }
+}
+
+.section-card {
+  margin: 0 16px 20px 16px;
+  background: white;
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+
+  .section-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1f1f1f;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    &::before {
+      content: "";
+      display: block;
+      width: 4px;
+      height: 16px;
+      background: #1677ff;
+      border-radius: 2px;
+    }
+  }
+}
+
+.auto-switch-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  .switch-info {
+    .label {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+    }
+    .status {
+      font-size: 12px;
+      margin-top: 4px;
+
+      &.active {
+        color: #ff4d4f;
+      }
+      &.inactive {
+        color: #999;
+      }
+    }
+  }
+
+  .switch-btn {
+    padding: 10px 20px;
+    border-radius: 30px;
+    // border: 2px solid transparent;
+    font-weight: 600;
+    font-size: 14px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+
+    &.off {
+      background-color: #f0f0f0;
+      color: #666;
+    }
+
+    &.on {
+      background-color: #ff4d4f;
+      color: white;
+      box-shadow: 0 4px 12px rgba(255, 77, 79, 0.3);
+    }
+
+    &:active {
+      transform: scale(0.95);
+    }
+  }
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.color-card {
+  position: relative;
+  height: 80px;
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+
+  &.active {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+    border: 2px solid white;
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
+
+  .color-preview {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    margin-bottom: 8px;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .color-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+
+  .ripple {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent);
+  }
+}
+
+.device-list-card {
+  display: flex;
+  flex-direction: column;
+  height: 600px;
+  background: white;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  margin: 0 16px;
+
+  .list-header-bar {
+    padding: 16px 20px;
+    background: #fafafa;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: #666;
+    font-weight: 500;
+  }
+}
+
+/* Device Item Styles */
+.device-item-container {
+  padding: 8px 16px 8px 16px;
+}
+
+.device-card {
+  background: white;
+  border: 1px solid #f0f0f0;
+  border-radius: 16px;
+  padding: 16px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+
+  &.connected {
+    background: #f6ffed;
+    border-color: #b7eb8f;
+
+    .status-indicator {
+      background: #52c41a;
+    }
+  }
+
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+
+    .device-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+
+      .icon-box {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        background: #f0f2f5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+      }
+
+      .text-info {
+        .name {
+          font-size: 16px;
+          font-weight: 700;
+          color: #333;
+          line-height: 1.4;
+        }
+        .id {
+          font-size: 11px;
+          color: #999;
+          font-family: monospace;
+        }
+      }
+    }
+
+    .rssi-box {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      font-weight: 600;
+
+      &.good {
+        color: #52c41a;
+      }
+      &.fair {
+        color: #faad14;
+      }
+      &.poor {
+        color: #ff4d4f;
+      }
+    }
+  }
+
+  .card-actions {
+    display: flex;
+    gap: 10px;
+
+    .action-btn {
+      flex: 1;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.2s;
+
+      &.btn-connect {
+        background: #1677ff;
+        color: white;
+        box-shadow: 0 2px 8px rgba(22, 119, 255, 0.25);
+        &:active {
+          background: #0958d9;
+        }
+      }
+
+      &.btn-disconnect {
+        background: rgba(255, 77, 79, 0.1);
+        color: #ff4d4f;
+        &:active {
+          background: rgba(255, 77, 79, 0.2);
+        }
+      }
+    }
+  }
+
+  .log-console {
+    margin-top: 12px;
+    background: #1e1e1e;
+    border-radius: 8px;
+    padding: 10px;
+    border-left: 3px solid #1677ff;
+
+    .log-label {
+      font-size: 10px;
+      color: #666;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+      display: block;
+    }
+
+    .log-content {
+      font-family: "SF Mono", "Menlo", monospace;
+      font-size: 12px;
+      color: #a5d6a7;
+      word-break: break-all;
+      line-height: 1.5;
+    }
+  }
+}

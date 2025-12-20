@@ -1,11 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import Taro from "@tarojs/taro";
+import { View, Text } from "@tarojs/components";
 import BLEService from "../../lib/bluetooth/bleService";
 import { VirtualList } from "@nutui/nutui-react-taro";
+import "./Scaner.scss";
+
+interface BLEDevice {
+  deviceId: string;
+  name?: string;
+  RSSI: number;
+  lastSeen: number;
+  missCount: number;
+}
 
 export default function Index() {
-  const [deviceList, setDeviceList] = useState([]);
-  const [notifyMap, setNotifyMap] = useState({});
+  const [deviceList, setDeviceList] = useState<BLEDevice[]>([]);
+  const [notifyMap, setNotifyMap] = useState<Record<string, string>>({});
   const [autoConnectEnabled, setAutoConnectEnabled] = useState(false);
   const [autoModeRunning, setAutoModeRunning] = useState(false);
 
@@ -15,22 +25,25 @@ export default function Index() {
   const writtenSet = useRef(new Set());
   const autoConnectRef = useRef(false);
 
-  /** ✅ 灯光模式指令表（集中管理） */
+  /** ✅ LIGHT MODE COMMANDS */
   const LIGHT_MODES = {
     static: {
       name: "静态白灯",
-      color: "#1677ff",
+      color: "#1677ff", // Blue
       hex: "55AA020B0101FFFFFF0000006526000000",
+      bg: "linear-gradient(135deg, #36cfc9 0%, #1677ff 100%)",
     },
     full: {
       name: "全白灯",
-      color: "#faad14",
+      color: "#faad14", // Orange
       hex: "55AA0837ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff016464010000",
+      bg: "linear-gradient(135deg, #ffc53d 0%, #faad14 100%)",
     },
     rainbow: {
       name: "七彩渐变",
-      color: "#13c2c2",
+      color: "#722ed1", // Purple
       hex: "55AA020B03010000000000006515000000",
+      bg: "linear-gradient(135deg, #f759ab 0%, #722ed1 100%)",
     },
   };
 
@@ -42,7 +55,7 @@ export default function Index() {
     initBLE();
   }, []);
 
-  /** ✅ BLE 初始化 */
+  /** ✅ BLE INIT */
   const initBLE = async () => {
     await BLEService.initBluetooth();
     await BLEService.startDiscovery();
@@ -84,7 +97,7 @@ export default function Index() {
     });
   };
 
-  /** ✅ 未连接设备稳定窗口 */
+  /** ✅ CONNECTIONS WATCHDOG */
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
@@ -108,7 +121,7 @@ export default function Index() {
     return () => clearInterval(timer);
   }, []);
 
-  /** ✅ 已连接设备 RSSI 探测 */
+  /** ✅ RSSI CHECK */
   useEffect(() => {
     const timer = setInterval(async () => {
       for (const deviceId of connectedSet.current) {
@@ -123,7 +136,7 @@ export default function Index() {
     return () => clearInterval(timer);
   }, []);
 
-  /** ✅ 幂等清除设备 */
+  /** ✅ REMOVE DEVICE */
   const removeDevice = (deviceId) => {
     connectedSet.current.delete(deviceId);
     writtenSet.current.delete(deviceId);
@@ -137,7 +150,7 @@ export default function Index() {
     setDeviceList((prev) => prev.filter((d) => d.deviceId !== deviceId));
   };
 
-  /** ✅ 写入 A951（统一写入函数） */
+  /** ✅ WRITE A951 */
   const writeA951 = async (deviceId, hex) => {
     const buffer = new Uint8Array(
       hex.match(/.{2}/g).map((b) => parseInt(b, 16))
@@ -156,11 +169,11 @@ export default function Index() {
 
       await BLEService.write(deviceId, svc.uuid, writeChar.uuid, buffer);
     } catch (err) {
-      console.log("⚠️ 写入失败:", deviceId, err);
+      console.log("⚠️ Write Failed:", deviceId, err);
     }
   };
 
-  /** ✅ 写入灯光模式（统一入口） */
+  /** ✅ WRITE MODE */
   const writeMode = async (modeKey) => {
     const mode = LIGHT_MODES[modeKey];
     if (!mode) return;
@@ -174,13 +187,13 @@ export default function Index() {
     setWhiteMode(modeKey);
   };
 
-  /** ✅ 自动写入（新设备连接） */
+  /** ✅ AUTO WRITE */
   const autoWrite = (deviceId) => {
     const hex = LIGHT_MODES.static.hex;
     writeA951(deviceId, hex);
   };
 
-  /** ✅ 连接设备 */
+  /** ✅ CONNECT */
   const handleConnect = async (deviceId) => {
     if (connectedSet.current.has(deviceId)) return;
 
@@ -195,7 +208,7 @@ export default function Index() {
     }
   };
 
-  /** ✅ 开启 Notify */
+  /** ✅ ENABLE NOTIFY */
   const enableNotify = async (deviceId) => {
     const services = await BLEService.getServices(deviceId);
     if (!services) return;
@@ -214,7 +227,7 @@ export default function Index() {
     await BLEService.notify(deviceId, svc.uuid, notifyChar.uuid);
   };
 
-  /** ✅ 自动模式 */
+  /** ✅ TOGGLE AUTO MODE */
   const toggleAutoMode = async () => {
     if (!autoModeRunning) {
       setAutoModeRunning(true);
@@ -236,128 +249,131 @@ export default function Index() {
     }
   };
 
-  /** ✅ 手动断开 */
+  /** ✅ DISCONNECT */
   const handleDisconnect = async (deviceId) => {
     await BLEService.disconnect(deviceId);
     removeDevice(deviceId);
   };
 
   return (
-    <view style={{ padding: "16px" }}>
-      <view style={{ fontSize: "18px", fontWeight: "bold" }}>
-        BLE 多设备测试页面（优化版）
-      </view>
+    <View className="scaner-page">
+      {/* Header Section */}
+      <View className="header">
+        <View className="title">BLE Device Manager</View>
+        <View className="subtitle">多设备批量控制 & 自动化测试</View>
+      </View>
 
-      {/* ✅ 自动模式 */}
-      <button
-        style={{
-          marginTop: "16px",
-          backgroundColor: autoModeRunning ? "#ff4d4f" : "#722ed1",
-          color: "#fff",
-          padding: "8px 14px",
-          borderRadius: "6px",
-        }}
-        onClick={toggleAutoMode}
-      >
-        {autoModeRunning ? "🔌 停止自动模式" : "⚡ 启动自动模式"}
-      </button>
+      {/* Control Section */}
+      <View className="section-card">
+        <View className="section-title">全局控制</View>
 
-      {/* ✅ 灯光模式按钮（自动生成） */}
-      {Object.entries(LIGHT_MODES).map(([key, mode]) => (
-        <button
-          key={key}
-          style={{
-            marginTop: "16px",
-            backgroundColor: whiteMode === key ? mode.color : "#666",
-            color: "#fff",
-            padding: "8px 14px",
-            borderRadius: "6px",
-            display: "block",
-          }}
-          onClick={() => writeMode(key)}
-        >
-          {mode.name}
-        </button>
-      ))}
+        {/* Auto Mode Switch */}
+        <View className="auto-switch-container">
+          <View className="switch-info">
+            <View className="label">自动化接管</View>
+            <View
+              className={`status ${autoModeRunning ? "active" : "inactive"}`}
+            >
+              {autoModeRunning ? "正在自动连接并配置设备..." : "手动模式"}
+            </View>
+          </View>
+          <View
+            className={`switch-btn ${autoModeRunning ? "on" : "off"}`}
+            onClick={toggleAutoMode}
+          >
+            {autoModeRunning ? "STOP AUTO" : "START AUTO"}
+          </View>
+        </View>
+      </View>
 
-      {/* ✅ 设备列表 */}
-      {/* ✅ 设备列表（NutUI 虚拟列表） */}
-      <view style={{ marginTop: "20px" }}>
-        <view style={{ marginBottom: "8px", fontWeight: "bold" }}>
-          扫描到的设备（632 开头）：
-        </view>
+      {/* Light Mode Section */}
+      <View className="section-card">
+        <View className="section-title">灯光模式</View>
+        <View className="color-grid">
+          {Object.entries(LIGHT_MODES).map(([key, mode]) => (
+            <View
+              key={key}
+              className={`color-card ${whiteMode === key ? "active" : ""}`}
+              style={{ background: mode.bg || mode.color }}
+              onClick={() => writeMode(key)}
+            >
+              <View className="ripple" />
+              <View className="color-name">{mode.name}</View>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* Device List Section */}
+      <View className="device-list-card">
+        <View className="list-header-bar">
+          <View>发现设备 ({deviceList.length})</View>
+          <View>已连接: {Array.from(connectedSet.current).length}</View>
+        </View>
 
         <VirtualList
-          height={600} // ✅ 可视区域高度（px）
-          itemHeight={180} // ✅ 每个 item 的高度（必须）
-          list={deviceList} // ✅ 数据源
-          overscan={5} // ✅ 预渲染数量（越大越流畅）
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: "8px",
-            padding: "8px",
-          }}
-          itemRender={(item, index) => {
+          list={deviceList}
+          itemHeight={160}
+          height={550}
+          itemRender={(item: BLEDevice) => {
             const isConnected = connectedSet.current.has(item.deviceId);
+            const rssiLevel =
+              item.RSSI > -60 ? "good" : item.RSSI > -80 ? "fair" : "poor";
 
             return (
-              <view
-                key={item.deviceId}
-                style={{
-                  padding: "12px",
-                  borderBottom: "1px solid #ccc",
-                  backgroundColor: isConnected ? "#e6f7ff" : "transparent",
-                }}
-              >
-                <view>名称：{item.name}</view>
-                <view>ID：{item.deviceId}</view>
-                <view>RSSI：{item.RSSI}</view>
+              <View className="device-item-container" key={item.deviceId}>
+                <View
+                  className={`device-card ${isConnected ? "connected" : ""}`}
+                >
+                  <View className="card-top">
+                    <View className="device-info">
+                      <View className="icon-box">
+                        <Text>{isConnected ? "🔗" : "📡"}</Text>
+                      </View>
+                      <View className="text-info">
+                        <View className="name">
+                          {item.name || "Unknown Device"}
+                        </View>
+                        <View className="id">{item.deviceId}</View>
+                      </View>
+                    </View>
+                    <View className={`rssi-box ${rssiLevel}`}>
+                      <Text>📶 {item.RSSI}</Text>
+                    </View>
+                  </View>
 
-                {isConnected ? (
-                  <>
-                    <button
-                      style={{
-                        marginTop: "8px",
-                        backgroundColor: "#ff4d4f",
-                        color: "#fff",
-                      }}
-                      onClick={() => handleDisconnect(item.deviceId)}
-                    >
-                      断开连接
-                    </button>
-
-                    {notifyMap[item.deviceId] && (
-                      <view
-                        style={{
-                          marginTop: "8px",
-                          backgroundColor: "#000",
-                          color: "#fff",
-                          padding: "6px 10px",
-                          borderRadius: "6px",
-                          fontSize: "12px",
-                        }}
+                  <View className="card-actions">
+                    {isConnected ? (
+                      <View
+                        className="action-btn btn-disconnect"
+                        onClick={() => handleDisconnect(item.deviceId)}
                       >
-                        通知：{notifyMap[item.deviceId]}
-                      </view>
+                        断开连接
+                      </View>
+                    ) : (
+                      <View
+                        className="action-btn btn-connect"
+                        onClick={() => handleConnect(item.deviceId)}
+                      >
+                        连接设备
+                      </View>
                     )}
-                  </>
-                ) : (
-                  <button
-                    style={{
-                      marginTop: "8px",
-                      backgroundColor: "#52c41a",
-                      color: "#fff",
-                    }}
-                    onClick={() => handleConnect(item.deviceId)}
-                  >
-                    连接设备
-                  </button>
-                )}
-              </view>
+                  </View>
+
+                  {isConnected && notifyMap[item.deviceId] && (
+                    <View className="log-console">
+                      <Text className="log-label">Notification Data</Text>
+                      <Text className="log-content">
+                        {notifyMap[item.deviceId]}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
             );
           }}
         />
-      </view>
-    </view>
+      </View>
+    </View>
   );
 }
