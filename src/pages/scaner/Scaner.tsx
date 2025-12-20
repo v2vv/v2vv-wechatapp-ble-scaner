@@ -6,6 +6,7 @@ export default function Index() {
   const [deviceList, setDeviceList] = useState([]);
   const [notifyMap, setNotifyMap] = useState({});
   const [autoConnectEnabled, setAutoConnectEnabled] = useState(false);
+  const [autoModeRunning, setAutoModeRunning] = useState(false); // ✅ 新增：自动模式开关
 
   const connectedSet = useRef(new Set());
   const autoConnectRef = useRef(false);
@@ -37,7 +38,7 @@ export default function Index() {
           if (!d.name || !d.name.startsWith("632")) return;
 
           d.lastSeen = Date.now();
-          d.missCount = 0; // ✅ 重置未出现计数
+          d.missCount = 0;
 
           const exists = list.find((i) => i.deviceId === d.deviceId);
 
@@ -71,7 +72,7 @@ export default function Index() {
     });
   };
 
-  /** ✅ 未连接设备：稳定窗口判断（防跳显） */
+  /** ✅ 未连接设备：稳定窗口判断 */
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
@@ -80,14 +81,12 @@ export default function Index() {
         return prev.filter((d) => {
           const isConnected = connectedSet.current.has(d.deviceId);
 
-          if (isConnected) return true; // ✅ 已连接设备不使用 lastSeen
+          if (isConnected) return true;
 
-          // ✅ 未连接设备：超过 2 秒未出现 → missCount++
           if (now - d.lastSeen > 2000) {
             d.missCount = (d.missCount || 0) + 1;
           }
 
-          // ✅ 连续 3 次未出现 → 判定消失
           if (d.missCount >= 3) {
             console.log("✅ 未连接设备消失:", d.deviceId);
             removeDevice(d.deviceId);
@@ -102,13 +101,12 @@ export default function Index() {
     return () => clearInterval(timer);
   }, []);
 
-  /** ✅ 已连接设备：RSSI 主动探测（快速断开检测） */
+  /** ✅ 已连接设备：RSSI 主动探测 */
   useEffect(() => {
     const timer = setInterval(async () => {
       for (const deviceId of connectedSet.current) {
         try {
           await Taro.getBLEDeviceRSSI({ deviceId });
-          // ✅ 设备正常
         } catch (err) {
           console.log("⚠️ RSSI 探测失败 → 判定断开:", deviceId);
           removeDevice(deviceId);
@@ -157,14 +155,36 @@ export default function Index() {
     await BLEService.notify(deviceId, svc.uuid, notifyChar.uuid);
   };
 
-  /** ✅ 自动连接所有设备 */
-  const autoConnectAllDevices = async () => {
-    setAutoConnectEnabled(true);
+  /** ✅ 自动模式：一键连接 / 一键断开 */
+  const toggleAutoMode = async () => {
+    if (!autoModeRunning) {
+      // ✅ 开启自动模式 → 自动连接
+      setAutoModeRunning(true);
+      setAutoConnectEnabled(true);
 
-    for (const dev of deviceList) {
-      if (dev.name?.startsWith("632")) {
-        await handleConnect(dev.deviceId);
+      for (const dev of deviceList) {
+        if (dev.name?.startsWith("632")) {
+          await handleConnect(dev.deviceId);
+        }
       }
+
+      console.log("✅ 自动模式已开启（自动连接）");
+    } else {
+      // ✅ 关闭自动模式 → 断开所有设备
+      setAutoModeRunning(false);
+      setAutoConnectEnabled(false);
+
+      const list = Array.from(connectedSet.current);
+      for (const deviceId of list) {
+        try {
+          await BLEService.disconnect(deviceId);
+        } catch (e) {
+          console.log("⚠️ 断开失败（忽略）:", deviceId);
+        }
+        removeDevice(deviceId);
+      }
+
+      console.log("✅ 自动模式已关闭（全部断开）");
     }
   };
 
@@ -186,17 +206,20 @@ export default function Index() {
         BLE 多设备测试页面
       </view>
 
+      {/* ✅ 自动模式按钮 */}
       <button
         style={{
           marginTop: "16px",
-          backgroundColor: "#722ed1",
+          backgroundColor: autoModeRunning ? "#ff4d4f" : "#722ed1",
           color: "#fff",
           padding: "8px 14px",
           borderRadius: "6px",
         }}
-        onClick={autoConnectAllDevices}
+        onClick={toggleAutoMode}
       >
-        ⚡ 自动连接所有 632 设备（持续）
+        {autoModeRunning
+          ? "🔌 停止自动模式（断开所有设备）"
+          : "⚡ 启动自动模式（自动连接所有设备）"}
       </button>
 
       <view style={{ marginTop: "20px" }}>
