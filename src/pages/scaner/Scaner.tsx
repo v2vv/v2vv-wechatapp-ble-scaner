@@ -12,6 +12,7 @@ export default function Index() {
   // null = 默认
   // "static" = 静态白灯
   // "full" = 全白灯
+  // "rainbow" = 七彩渐变
 
   const connectedSet = useRef(new Set());
   const writtenSet = useRef(new Set());
@@ -256,6 +257,20 @@ export default function Index() {
     console.log("✅ 全白灯写入完成");
   };
 
+  /** ✅ 七彩渐变 */
+  const sendRainbow = async () => {
+    const hex = "55AA020B03010000000000006515000000";
+
+    const tasks = [];
+    for (const deviceId of connectedSet.current) {
+      tasks.push(writeA951(deviceId, hex));
+    }
+
+    await Promise.all(tasks);
+    setWhiteMode("rainbow");
+    console.log("✅ 七彩渐变写入完成");
+  };
+
   /** ✅ 手动断开 */
   const handleDisconnect = async (deviceId) => {
     await BLEService.disconnect(deviceId);
@@ -284,7 +299,7 @@ export default function Index() {
           : "⚡ 启动自动模式（自动连接 + 自动写入）"}
       </button>
 
-      {/* ✅ 静态白灯按钮（可随时切换） */}
+      {/* ✅ 静态白灯 */}
       <button
         style={{
           marginTop: "16px",
@@ -301,7 +316,7 @@ export default function Index() {
         静态白灯
       </button>
 
-      {/* ✅ 全白灯按钮（可随时切换） */}
+      {/* ✅ 全白灯 */}
       <button
         style={{
           marginTop: "16px",
@@ -316,6 +331,23 @@ export default function Index() {
         }}
       >
         全白灯
+      </button>
+
+      {/* ✅ 七彩渐变 */}
+      <button
+        style={{
+          marginTop: "16px",
+          backgroundColor: whiteMode === "rainbow" ? "#13c2c2" : "#666",
+          color: "#fff",
+          padding: "8px 14px",
+          borderRadius: "6px",
+        }}
+        onClick={() => {
+          sendRainbow();
+          setWhiteMode("rainbow");
+        }}
+      >
+        七彩渐变
       </button>
 
       <view style={{ marginTop: "20px" }}>
