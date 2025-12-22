@@ -276,7 +276,12 @@ export default function Index() {
       setAutoConnectEnabled(true);
 
       for (const dev of deviceList) {
-        if (dev.name?.startsWith("632")) await handleConnect(dev.deviceId);
+        if (
+          dev.name?.startsWith("632") &&
+          dev.RSSI >= rssiThresholdRef.current
+        ) {
+          await handleConnect(dev.deviceId);
+        }
       }
     } else {
       setAutoModeRunning(false);
