@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Taro from "@tarojs/taro";
-import { View, Text } from "@tarojs/components";
+import { View, Text, Slider } from "@tarojs/components";
 import BLEService from "../../lib/bluetooth/bleService";
 import { VirtualList } from "@nutui/nutui-react-taro";
 import "./Scaner.scss";
@@ -25,6 +25,14 @@ export default function Index() {
   const writtenSet = useRef(new Set());
   const autoConnectRef = useRef(false);
   const currentModeRef = useRef<string | null>(null); // 'LOOP' or modeKey
+
+  // RSSI Limit State
+  const [rssiThreshold, setRssiThreshold] = useState(-80);
+  const rssiThresholdRef = useRef(-80);
+
+  useEffect(() => {
+    rssiThresholdRef.current = rssiThreshold;
+  }, [rssiThreshold]);
 
   // RGBW Loop State
   const [isLooping, setIsLooping] = useState(false);
@@ -104,7 +112,9 @@ export default function Index() {
 
           if (!exists) {
             list.push(d);
-            if (autoConnectRef.current) handleConnect(d.deviceId);
+            if (autoConnectRef.current && d.RSSI >= rssiThresholdRef.current) {
+              handleConnect(d.deviceId);
+            }
           } else {
             exists.RSSI = d.RSSI;
             exists.lastSeen = Date.now();
@@ -358,6 +368,57 @@ export default function Index() {
           >
             {autoModeRunning ? "STOP AUTO" : "START AUTO"}
           </View>
+        </View>
+
+        {/* RSSI Threshold Slider */}
+        <View
+          className="rssi-setting-container"
+          style={{ marginTop: "24px", padding: "0 4px" }}
+        >
+          <View
+            className="label-row"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginBottom: "12px",
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontSize: "14px", color: "#333", fontWeight: 600 }}>
+              自动连接信号阈值
+            </Text>
+            <Text
+              style={{
+                fontSize: "14px",
+                color: "#1677ff",
+                fontFamily: "monospace",
+                fontWeight: "bold",
+              }}
+            >
+              {rssiThreshold} dBm
+            </Text>
+          </View>
+          <Slider
+            min={-100}
+            max={-40}
+            step={1}
+            value={rssiThreshold}
+            activeColor="#1677ff"
+            backgroundColor="#e6e6e6"
+            blockSize={24}
+            onChanging={(e) => setRssiThreshold(e.detail.value)}
+            onChange={(e) => setRssiThreshold(e.detail.value)}
+          />
+          <Text
+            style={{
+              fontSize: "11px",
+              color: "#999",
+              marginTop: "8px",
+              display: "block",
+            }}
+          >
+            仅自动连接信号强于 {rssiThreshold} dBm 的设备
+          </Text>
         </View>
 
         {/* Loop Control Button */}
