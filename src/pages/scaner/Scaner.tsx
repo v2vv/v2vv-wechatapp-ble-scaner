@@ -24,6 +24,7 @@ export default function Index() {
   const connectedSet = useRef(new Set());
   const writtenSet = useRef(new Set());
   const autoConnectRef = useRef(false);
+  const currentModeRef = useRef<string | null>(null); // 'LOOP' or modeKey
 
   // RGBW Loop State
   const [isLooping, setIsLooping] = useState(false);
@@ -214,12 +215,6 @@ export default function Index() {
     setWhiteMode(modeKey);
   };
 
-  /** ✅ AUTO WRITE */
-  const autoWrite = (deviceId) => {
-    const hex = LIGHT_MODES.static.hex;
-    writeA951(deviceId, hex);
-  };
-
   /** ✅ CONNECT */
   const handleConnect = async (deviceId) => {
     if (connectedSet.current.has(deviceId)) return;
@@ -229,9 +224,19 @@ export default function Index() {
 
     await enableNotify(deviceId);
 
-    if (autoModeRunning && !writtenSet.current.has(deviceId)) {
+    await enableNotify(deviceId);
+
+    // Fix: Use ref to avoid stale closure issues in callbacks
+    if (autoConnectRef.current && !writtenSet.current.has(deviceId)) {
       writtenSet.current.add(deviceId);
-      autoWrite(deviceId);
+
+      const mode = currentModeRef.current;
+      if (mode === "LOOP") {
+        startLoop();
+      } else if (mode && LIGHT_MODES[mode]) {
+        // Apply current static color to the new device
+        writeA951(deviceId, LIGHT_MODES[mode].hex);
+      }
     }
   };
 
@@ -282,22 +287,46 @@ export default function Index() {
     removeDevice(deviceId);
   };
 
+  /** ✅ START LOOP */
+  const startLoop = () => {
+    currentModeRef.current = "LOOP";
+    if (loopTimerRef.current) return;
+
+    setIsLooping(true);
+    let idx = 0;
+    writeMode(LOOP_COLORS[idx]);
+    idx = (idx + 1) % LOOP_COLORS.length;
+
+    loopTimerRef.current = setInterval(() => {
+      writeMode(LOOP_COLORS[idx]);
+      idx = (idx + 1) % LOOP_COLORS.length;
+    }, 1000);
+  };
+
+  /** ✅ STOP LOOP */
+  const stopLoop = () => {
+    // Note: We don't clear currentModeRef here because we might want to stay on the last color
+    // But for explicit manual control, we'll override it in handleManualMode
+    if (loopTimerRef.current) {
+      clearInterval(loopTimerRef.current);
+      loopTimerRef.current = null;
+    }
+    setIsLooping(false);
+  };
+
+  /** ✅ MANUAL MODE CLICK */
+  const handleManualModeClick = (key) => {
+    stopLoop();
+    currentModeRef.current = key;
+    writeMode(key);
+  };
+
   /** ✅ TOGGLE LOOP */
   const toggleLoop = () => {
     if (isLooping) {
-      clearInterval(loopTimerRef.current);
-      setIsLooping(false);
+      stopLoop();
     } else {
-      setIsLooping(true);
-      let idx = 0;
-      // Execute immediately
-      writeMode(LOOP_COLORS[idx]);
-      idx = (idx + 1) % LOOP_COLORS.length;
-
-      loopTimerRef.current = setInterval(() => {
-        writeMode(LOOP_COLORS[idx]);
-        idx = (idx + 1) % LOOP_COLORS.length;
-      }, 1000);
+      startLoop();
     }
   };
 
@@ -365,7 +394,7 @@ export default function Index() {
               key={key}
               className={`color-card ${whiteMode === key ? "active" : ""}`}
               style={{ background: mode.bg || mode.color }}
-              onClick={() => writeMode(key)}
+              onClick={() => handleManualModeClick(key)}
             >
               <View className="ripple" />
               <View className="color-name">{mode.name}</View>
