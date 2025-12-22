@@ -1,61 +1,90 @@
+/* Global Variables */
+$primary-color: #2f54eb;
+$success-color: #52c41a;
+$warning-color: #faad14;
+$error-color: #ff4d4f;
+$bg-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+$card-bg: rgba(255, 255, 255, 0.9); /* More opaque for compactness */
+$glass-border: 1px solid rgba(255, 255, 255, 0.6);
+$shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.02);
+$shadow-md: 0 6px 16px rgba(0, 0, 0, 0.06);
+
 .scaner-page {
   min-height: 100vh;
-  background-color: #f5f7fa;
+  background: #f0f2f5;
+  background-image: radial-gradient(
+      at 0% 0%,
+      rgba(22, 119, 255, 0.1) 0px,
+      transparent 50%
+    ),
+    radial-gradient(at 100% 100%, rgba(82, 196, 26, 0.1) 0px, transparent 50%);
   box-sizing: border-box;
   padding-bottom: 40px;
-
-  /* Import a nice font if possible, otherwise rely on system stack */
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+  color: #1f2937;
 }
 
+/* Header - Compact */
 .header {
-  padding: 24px 20px;
-  background: white;
-  margin-bottom: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  padding: 16px 20px 8px; /* Reduced padding */
+  background: transparent;
+  margin-bottom: 4px;
 
   .title {
-    font-size: 22px;
+    font-size: 24px; /* Slightly smaller */
     font-weight: 800;
-    color: #1f1f1f;
+    background: linear-gradient(135deg, #1f2937 0%, #4b5563 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
     letter-spacing: -0.5px;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
   }
 
   .subtitle {
-    font-size: 13px;
-    color: #8c8c8c;
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: 500;
+    opacity: 0.8;
   }
 }
 
+/* Card Common Styles - Compact */
 .section-card {
-  margin: 0 16px 20px 16px;
-  background: white;
+  margin: 0 16px 12px; /* Reduced margin */
+  background: $card-bg;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: 20px;
-  padding: 20px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  padding: 16px; /* Reduced padding */
+  box-shadow: $shadow-md;
+  border: $glass-border;
+  transition: transform 0.2s;
 
   .section-title {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
-    color: #1f1f1f;
-    margin-bottom: 16px;
+    color: #374151;
+    margin-bottom: 12px;
     display: flex;
     align-items: center;
     gap: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 
     &::before {
       content: "";
       display: block;
       width: 4px;
-      height: 16px;
-      background: #1677ff;
-      border-radius: 2px;
+      height: 4px;
+      background: $primary-color;
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(47, 84, 235, 0.1);
     }
   }
 }
 
+/* Auto Switch */
 .auto-switch-container {
   display: flex;
   align-items: center;
@@ -63,260 +92,243 @@
 
   .switch-info {
     .label {
-      font-size: 16px;
-      font-weight: 600;
-      color: #333;
+      font-size: 15px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 2px;
     }
     .status {
-      font-size: 12px;
-      margin-top: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      
+      &::before {
+        content: "";
+        display: inline-block;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        margin-right: 4px;
+        background: #d1d5db;
+      }
 
       &.active {
-        color: #ff4d4f;
+        color: $primary-color;
+        &::before { background: $primary-color; }
       }
       &.inactive {
-        color: #999;
+        color: #9ca3af;
       }
     }
   }
 
   .switch-btn {
-    padding: 10px 20px;
-    border-radius: 30px;
-    // border: 2px solid transparent;
-    font-weight: 600;
-    font-size: 14px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    padding: 8px 16px; /* Compact button */
+    border-radius: 100px;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s;
 
     &.off {
-      background-color: #f0f0f0;
-      color: #666;
+      background: #f3f4f6;
+      color: #6b7280;
     }
 
     &.on {
-      background-color: #ff4d4f;
+      background: $primary-color;
       color: white;
-      box-shadow: 0 4px 12px rgba(255, 77, 79, 0.3);
-    }
-
-    &:active {
-      transform: scale(0.95);
+      box-shadow: 0 4px 10px rgba(47, 84, 235, 0.25);
     }
   }
 }
 
+/* RSSI Slider - Compact */
+.rssi-setting-container {
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 12px !important;
+  border: 1px solid rgba(0, 0, 0, 0.03);
+
+  .label-row {
+    margin-bottom: 8px !important;
+  }
+}
+
+/* Loop Button Compact */
+.loop-btn {
+  margin-top: 12px !important;
+  padding: 10px !important;
+  font-size: 13px !important;
+}
+
+/* Color Grid */
 .color-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 10px;
 }
 
 .color-card {
   position: relative;
-  height: 80px;
+  height: 64px; /* Reduced height */
   border-radius: 16px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 
   &.active {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-    border: 2px solid white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+    border: 2px solid rgba(255, 255, 255, 0.5);
   }
 
   &:active {
     transform: scale(0.96);
   }
 
-  .color-preview {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    margin-bottom: 8px;
-    border: 2px solid rgba(255, 255, 255, 0.8);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  }
-
   .color-name {
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
     color: white;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    z-index: 2;
   }
 
   .ripple {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent);
+    background: linear-gradient(
+      to bottom right,
+      rgba(255, 255, 255, 0.3),
+      transparent
+    );
   }
 }
 
+/* Device List */
 .device-list-card {
+  margin: 0 16px;
+  background: $card-bg;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 20px;
+  box-shadow: $shadow-md;
+  border: $glass-border;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  height: 600px;
-  background: white;
-  border-radius: 20px;
-  overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
-  margin: 0 16px;
+  height: 420px; /* Reduced Height */
 
   .list-header-bar {
-    padding: 16px 20px;
-    background: #fafafa;
-    border-bottom: 1px solid #f0f0f0;
+    padding: 12px 20px; /* Compact */
+    background: #fff;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 13px;
-    color: #666;
-    font-weight: 500;
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: 600;
   }
 }
 
-/* Device Item Styles */
+/* Device Item */
 .device-item-container {
-  padding: 8px 16px 8px 16px;
+  padding: 6px 16px; /* Tighter list */
 }
 
 .device-card {
   background: white;
-  border: 1px solid #f0f0f0;
+  border: 1px solid #f3f4f6;
   border-radius: 16px;
-  padding: 16px;
-  transition: all 0.3s ease;
+  padding: 12px; /* Less padding */
+  transition: all 0.2s;
   position: relative;
-  overflow: hidden;
 
   &.connected {
-    background: #f6ffed;
-    border-color: #b7eb8f;
-
-    .status-indicator {
-      background: #52c41a;
-    }
+    background: #f0fdf4;
+    border-color: #bbf7d0;
   }
 
   .card-top {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 12px;
+    align-items: center;
+    margin-bottom: 10px;
 
     .device-info {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
 
       .icon-box {
-        width: 40px;
-        height: 40px;
-        border-radius: 12px;
-        background: #f0f2f5;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        background: #f3f4f6;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 20px;
+        font-size: 18px;
       }
 
       .text-info {
         .name {
-          font-size: 16px;
+          font-size: 14px;
           font-weight: 700;
-          color: #333;
-          line-height: 1.4;
+          color: #1f2937;
+          margin-bottom: 0;
         }
         .id {
-          font-size: 11px;
-          color: #999;
-          font-family: monospace;
+          font-size: 10px;
+          color: #9ca3af;
+          background: #f9fafb;
+          padding: 1px 4px;
+          border-radius: 4px;
         }
       }
     }
 
     .rssi-box {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 12px;
-      font-weight: 600;
-
-      &.good {
-        color: #52c41a;
+      text {
+        font-weight: 700;
+        font-size: 12px;
       }
-      &.fair {
-        color: #faad14;
-      }
-      &.poor {
-        color: #ff4d4f;
-      }
+      &.good text { color: $success-color; }
+      &.fair text { color: $warning-color; }
+      &.poor text { color: $error-color; }
     }
   }
 
   .card-actions {
     display: flex;
-    gap: 10px;
+    gap: 8px;
 
     .action-btn {
       flex: 1;
-      height: 36px;
-      border-radius: 10px;
+      height: 32px; /* Compact buttons */
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
-      transition: all 0.2s;
 
       &.btn-connect {
-        background: #1677ff;
+        background: #111827;
         color: white;
-        box-shadow: 0 2px 8px rgba(22, 119, 255, 0.25);
-        &:active {
-          background: #0958d9;
-        }
       }
 
       &.btn-disconnect {
-        background: rgba(255, 77, 79, 0.1);
-        color: #ff4d4f;
-        &:active {
-          background: rgba(255, 77, 79, 0.2);
-        }
+        background: #fee2e2;
+        color: #ef4444;
       }
-    }
-  }
-
-  .log-console {
-    margin-top: 12px;
-    background: #1e1e1e;
-    border-radius: 8px;
-    padding: 10px;
-    border-left: 3px solid #1677ff;
-
-    .log-label {
-      font-size: 10px;
-      color: #666;
-      text-transform: uppercase;
-      margin-bottom: 4px;
-      display: block;
-    }
-
-    .log-content {
-      font-family: "SF Mono", "Menlo", monospace;
-      font-size: 12px;
-      color: #a5d6a7;
-      word-break: break-all;
-      line-height: 1.5;
     }
   }
 }

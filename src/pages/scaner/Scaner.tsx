@@ -478,8 +478,8 @@ export default function Index() {
 
         <VirtualList
           list={deviceList}
-          itemHeight={160}
-          height={550}
+          itemHeight={110}
+          height={380}
           itemRender={(item: BLEDevice) => {
             const isConnected = connectedSet.current.has(item.deviceId);
             const rssiLevel =
