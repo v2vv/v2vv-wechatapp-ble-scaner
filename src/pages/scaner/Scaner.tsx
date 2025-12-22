@@ -25,6 +25,11 @@ export default function Index() {
   const writtenSet = useRef(new Set());
   const autoConnectRef = useRef(false);
 
+  // RGBW Loop State
+  const [isLooping, setIsLooping] = useState(false);
+  const loopTimerRef = useRef<any>(null);
+  const LOOP_COLORS = ["red", "green", "blue", "full"]; // Order: Red, Green, Blue, White
+
   /** ✅ LIGHT MODE COMMANDS */
   const LIGHT_MODES = {
     static: {
@@ -45,11 +50,33 @@ export default function Index() {
       hex: "55AA020B03010000000000006515000000",
       bg: "linear-gradient(135deg, #f759ab 0%, #722ed1 100%)",
     },
+    red: {
+      name: "红色灯光",
+      color: "#ff4d4f", // Red
+      hex: "55AA083700ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff00016464010000",
+      bg: "linear-gradient(135deg, #ff7875 0%, #d9363e 100%)",
+    },
+    green: {
+      name: "绿色灯光",
+      color: "#52c41a", // Green
+      hex: "55AA0837ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000016464010000",
+      bg: "linear-gradient(135deg, #95de64 0%, #52c41a 100%)",
+    },
+    blue: {
+      name: "蓝色灯光",
+      color: "#2f54eb", // Geekblue
+      hex: "55AA08370000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff016464010000",
+      bg: "linear-gradient(135deg, #597ef7 0%, #2f54eb 100%)",
+    },
   };
 
   useEffect(() => {
     autoConnectRef.current = autoConnectEnabled;
   }, [autoConnectEnabled]);
+
+  useEffect(() => {
+    return () => clearInterval(loopTimerRef.current);
+  }, []);
 
   useEffect(() => {
     initBLE();
@@ -255,6 +282,25 @@ export default function Index() {
     removeDevice(deviceId);
   };
 
+  /** ✅ TOGGLE LOOP */
+  const toggleLoop = () => {
+    if (isLooping) {
+      clearInterval(loopTimerRef.current);
+      setIsLooping(false);
+    } else {
+      setIsLooping(true);
+      let idx = 0;
+      // Execute immediately
+      writeMode(LOOP_COLORS[idx]);
+      idx = (idx + 1) % LOOP_COLORS.length;
+
+      loopTimerRef.current = setInterval(() => {
+        writeMode(LOOP_COLORS[idx]);
+        idx = (idx + 1) % LOOP_COLORS.length;
+      }, 1000);
+    }
+  };
+
   return (
     <View className="scaner-page">
       {/* Header Section */}
@@ -283,6 +329,30 @@ export default function Index() {
           >
             {autoModeRunning ? "STOP AUTO" : "START AUTO"}
           </View>
+        </View>
+
+        {/* Loop Control Button */}
+        <View
+          className="loop-btn"
+          onClick={toggleLoop}
+          style={{
+            marginTop: "16px",
+            padding: "14px",
+            borderRadius: "12px",
+            background: isLooping
+              ? "linear-gradient(90deg, #ff4d4f, #52c41a, #2f54eb, #faad14)"
+              : "#f5f5f5",
+            color: isLooping ? "#fff" : "#666",
+            textAlign: "center",
+            fontWeight: "bold",
+            fontSize: "14px",
+            boxShadow: isLooping ? "0 4px 12px rgba(0,0,0,0.15)" : "none",
+            transition: "all 0.3s ease",
+          }}
+        >
+          {isLooping
+            ? "🟥 🟩 🟦 ⬜ 循环运行中 (点击停止)"
+            : "开启 RGBW 循环切换 (1s)"}
         </View>
       </View>
 
