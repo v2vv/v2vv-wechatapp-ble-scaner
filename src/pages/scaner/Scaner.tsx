@@ -412,7 +412,7 @@ export default function Index() {
             </Text>
           </View>
           <Slider
-            min={-100}
+            min={-120}
             max={-40}
             step={1}
             value={rssiThreshold}
@@ -422,12 +422,49 @@ export default function Index() {
             onChanging={(e) => setRssiThreshold(e.detail.value)}
             onChange={(e) => setRssiThreshold(e.detail.value)}
           />
+          <View
+            style={{
+              display: "flex",
+              justifyContent: "space-around",
+              marginTop: "16px",
+              marginBottom: "8px",
+            }}
+          >
+            {[
+              { label: "宽松 -92", value: -92 },
+              { label: "适中 -75", value: -75 },
+              { label: "极好 -58", value: -58 },
+            ].map((preset) => (
+              <View
+                key={preset.value}
+                onClick={() => setRssiThreshold(preset.value)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: "16px",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  backgroundColor:
+                    rssiThreshold === preset.value ? "#1677ff" : "#f0f2f5",
+                  color: rssiThreshold === preset.value ? "#fff" : "#666",
+                  boxShadow:
+                    rssiThreshold === preset.value
+                      ? "0 2px 8px rgba(22, 119, 255, 0.3)"
+                      : "none",
+                  transition: "all 0.3s ease",
+                }}
+              >
+                {preset.label}
+              </View>
+            ))}
+          </View>
+
           <Text
             style={{
               fontSize: "11px",
               color: "#999",
               marginTop: "8px",
               display: "block",
+              textAlign: "center",
             }}
           >
             仅自动连接信号强于 {rssiThreshold} dBm 的设备
