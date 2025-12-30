@@ -485,7 +485,10 @@ export default function Index() {
         </View>
 
         <VirtualList
-          list={deviceList.filter((d) => d.RSSI >= rssiThreshold)}
+          list={deviceList.filter(
+            (d) =>
+              d.RSSI >= rssiThreshold || connectedSet.current.has(d.deviceId)
+          )}
           itemHeight={110}
           height={380}
           itemRender={(item: BLEDevice) => {
