@@ -56,7 +56,7 @@ export default function Index() {
     rainbow: {
       name: "七彩渐变",
       color: "#722ed1", // Purple
-      hex: "55AA020B03010000000000006515000000",
+      hex: "55AA020B03010000000000006464000000",
       bg: "linear-gradient(135deg, #f759ab 0%, #722ed1 100%)",
     },
     red: {
@@ -315,7 +315,7 @@ export default function Index() {
     loopTimerRef.current = setInterval(() => {
       writeMode(LOOP_COLORS[idx]);
       idx = (idx + 1) % LOOP_COLORS.length;
-    }, 1000);
+    }, 500);
   };
 
   /** ✅ STOP LOOP */
@@ -447,7 +447,7 @@ export default function Index() {
         >
           {isLooping
             ? "🟥 🟩 🟦 ⬜ 循环运行中 (点击停止)"
-            : "开启 RGBW 循环切换 (1s)"}
+            : "开启 RGBW 循环切换 (0.5s)"}
         </View>
       </View>
 
