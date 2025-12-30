@@ -27,8 +27,8 @@ export default function Index() {
   const currentModeRef = useRef<string | null>(null); // 'LOOP' or modeKey
 
   // RSSI Limit State
-  const [rssiThreshold, setRssiThreshold] = useState(-80);
-  const rssiThresholdRef = useRef(-80);
+  const [rssiThreshold, setRssiThreshold] = useState(-58);
+  const rssiThresholdRef = useRef(-58);
 
   useEffect(() => {
     rssiThresholdRef.current = rssiThreshold;
@@ -477,7 +477,7 @@ export default function Index() {
         </View>
 
         <VirtualList
-          list={deviceList}
+          list={deviceList.filter((d) => d.RSSI >= rssiThreshold)}
           itemHeight={110}
           height={380}
           itemRender={(item: BLEDevice) => {
