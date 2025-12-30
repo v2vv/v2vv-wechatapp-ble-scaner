@@ -229,6 +229,14 @@ export default function Index() {
   const handleConnect = async (deviceId) => {
     if (connectedSet.current.has(deviceId)) return;
 
+    if (connectedSet.current.size >= 8) {
+      Taro.showToast({
+        title: "已达到最大连接数 (8)",
+        icon: "none",
+      });
+      return;
+    }
+
     await BLEService.connect(deviceId);
     connectedSet.current.add(deviceId);
 
