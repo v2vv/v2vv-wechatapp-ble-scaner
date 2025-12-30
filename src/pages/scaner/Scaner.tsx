@@ -237,24 +237,33 @@ export default function Index() {
       return;
     }
 
-    await BLEService.connect(deviceId);
-    connectedSet.current.add(deviceId);
+    try {
+      // 停止扫描以通过减少无线电干扰加速连接
+      await Taro.stopBluetoothDevicesDiscovery();
 
-    await enableNotify(deviceId);
+      await BLEService.connect(deviceId);
+      connectedSet.current.add(deviceId);
 
-    await enableNotify(deviceId);
+      await enableNotify(deviceId);
 
-    // Fix: Use ref to avoid stale closure issues in callbacks
-    if (autoConnectRef.current && !writtenSet.current.has(deviceId)) {
-      writtenSet.current.add(deviceId);
+      // Fix: Use ref to avoid stale closure issues in callbacks
+      if (autoConnectRef.current && !writtenSet.current.has(deviceId)) {
+        writtenSet.current.add(deviceId);
 
-      const mode = currentModeRef.current;
-      if (mode === "LOOP") {
-        startLoop();
-      } else if (mode && LIGHT_MODES[mode]) {
-        // Apply current static color to the new device
-        writeA951(deviceId, LIGHT_MODES[mode].hex);
+        const mode = currentModeRef.current;
+        if (mode === "LOOP") {
+          startLoop();
+        } else if (mode && LIGHT_MODES[mode]) {
+          // Apply current static color to the new device
+          writeA951(deviceId, LIGHT_MODES[mode].hex);
+        }
       }
+    } catch (err) {
+      console.warn("Connection sequence failed:", err);
+      removeDevice(deviceId); // Cleanup if failed
+    } finally {
+      // 恢复扫描
+      await Taro.startBluetoothDevicesDiscovery({ allowDuplicatesKey: true });
     }
   };
 
