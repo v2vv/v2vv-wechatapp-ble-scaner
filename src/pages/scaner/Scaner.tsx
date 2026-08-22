@@ -23,6 +23,10 @@ export default function Index() {
   const [whiteMode, setWhiteMode] = useState<string | null>(null);
 
   const connectedSet = useRef<Set<string>>(new Set());
+  const connectingSet = useRef<Set<string>>(new Set());
+  const connectQueueRef = useRef<string[]>([]);
+  const isProcessingQueueRef = useRef(false);
+
   const writtenSet = useRef<Set<string>>(new Set());
   const autoConnectRef = useRef(false);
   const currentModeRef = useRef<string | null>(null); // 'LOOP' or modeKey
@@ -99,8 +103,15 @@ export default function Index() {
   }, []);
 
   /**
+   * 辅助函数：将 16 进制字符串转换为 ArrayBuffer
+   */
+  const parseHexBuffer = (hex: string): ArrayBuffer => {
+    const matches = hex.match(/.{2}/g) || [];
+    return new Uint8Array(matches.map((b) => parseInt(b, 16))).buffer;
+  };
+
+  /**
    * 🌟 动态计算基于信号强度的更新节流时间 (ms)
-   * 强信号/新设备高频扫描，弱信号大幅降低刷新频次以释放系统与渲染性能
    */
   const getThrottleInterval = (rssi: number) => {
     if (rssi >= -65) return 350; // 强信号：350ms 极速响应
@@ -132,6 +143,79 @@ export default function Index() {
     setDeviceList(list);
   }, []);
 
+  /**
+   * 🌟 快速连接队列处理器 (Fast Serial Connection Pipeline)
+   * 避免并发 GATT 冲突，单设备高效握手（~150ms-300ms），连接完成立即可用
+   */
+  const processConnectQueue = async () => {
+    if (isProcessingQueueRef.current) return;
+    isProcessingQueueRef.current = true;
+
+    while (connectQueueRef.current.length > 0) {
+      if (connectedSet.current.size >= 8) {
+        Taro.showToast({
+          title: "已达到最大连接数 (8)",
+          icon: "none",
+        });
+        connectQueueRef.current = [];
+        break;
+      }
+
+      const nextDeviceId = connectQueueRef.current.shift()!;
+      if (connectedSet.current.has(nextDeviceId)) {
+        connectingSet.current.delete(nextDeviceId);
+        continue;
+      }
+
+      try {
+        // 暂停扫描以全功率加速当前 GATT 连接握手
+        await Taro.stopBluetoothDevicesDiscovery();
+
+        // 极速建立连接 + 协商 MTU + 单次获取特征缓存 + 开启 Notify
+        await BLEService.fastConnectAndSetup(nextDeviceId, 3500);
+        connectedSet.current.add(nextDeviceId);
+
+        // 如果在自动连接模式下，且尚未发送过初始指令，极速下发
+        if (autoConnectRef.current && !writtenSet.current.has(nextDeviceId)) {
+          writtenSet.current.add(nextDeviceId);
+
+          const mode = currentModeRef.current;
+          if (mode === "LOOP") {
+            startLoop();
+          } else if (mode && LIGHT_MODES[mode]) {
+            const buf = parseHexBuffer(LIGHT_MODES[mode].hex);
+            await BLEService.fastWrite(nextDeviceId, buf);
+          }
+        }
+
+        isDirtyRef.current = true;
+        flushDeviceList();
+      } catch (err) {
+        console.warn("⚡ 连接失败:", nextDeviceId, err);
+        removeDevice(nextDeviceId);
+      } finally {
+        connectingSet.current.delete(nextDeviceId);
+        // 连接完成后，立即恢复高灵敏度扫描
+        await BLEService.startDiscovery();
+      }
+    }
+
+    isProcessingQueueRef.current = false;
+  };
+
+  /** ✅ 发起连接（入队调度） */
+  const handleConnect = (deviceId: string) => {
+    if (
+      connectedSet.current.has(deviceId) ||
+      connectingSet.current.has(deviceId)
+    ) {
+      return;
+    }
+    connectingSet.current.add(deviceId);
+    connectQueueRef.current.push(deviceId);
+    processConnectQueue();
+  };
+
   /** ✅ BLE INIT & SMART DISCOVERY */
   const initBLE = async () => {
     await BLEService.initBluetooth();
@@ -151,7 +235,7 @@ export default function Index() {
         const lastUpdated = lastUpdateTimeMapRef.current.get(id) || 0;
 
         if (!existing) {
-          // 🚀 1. 重点捕获新设备：0 延迟立即加入并同步
+          // 🚀 1. 重点捕获新设备：0 延迟立即录入
           const newDev: BLEDevice = {
             deviceId: id,
             name: d.name,
@@ -166,26 +250,21 @@ export default function Index() {
           hasNewDevice = true;
           isDirtyRef.current = true;
 
-          // 自动连接逻辑：新设备如果达到信号阈值，立即连接
+          // 自动连接逻辑：新设备如果达到信号阈值，0ms 极速进入连接队列！
           if (autoConnectRef.current && d.RSSI >= rssiThresholdRef.current) {
             handleConnect(id);
           }
         } else {
-          // 🚀 2. 已有设备：分级节流控制（降低弱信号频次，加速强信号/信号跃升设备）
+          // 🚀 2. 已有设备：分级节流控制
           const oldRssi = existing.RSSI;
           const rssiJump = d.RSSI - oldRssi;
           const throttleInterval = getThrottleInterval(d.RSSI);
           const timeElapsed = now - lastUpdated;
           const isConnected = connectedSet.current.has(id);
 
-          // 内存保活时间刷新
           existing.lastSeen = now;
           existing.missCount = 0;
 
-          // 判定是否符合更新条件：
-          // - 达到该设备信号强度对应的节流周期
-          // - 信号突然大幅增强 (>= 10 dBm，说明设备靠近)
-          // - 已连接设备保持 500ms 响应
           if (
             timeElapsed >= throttleInterval ||
             rssiJump >= 10 ||
@@ -196,7 +275,7 @@ export default function Index() {
             lastUpdateTimeMapRef.current.set(id, now);
             isDirtyRef.current = true;
 
-            // 若设备原先较弱，靠近后达标且开启自动连接，立即触发连接
+            // 若设备原先较弱，靠近变强后达到阈值且开启自动连接，立即入队连接
             if (
               autoConnectRef.current &&
               !connectedSet.current.has(id) &&
@@ -209,7 +288,6 @@ export default function Index() {
         }
       });
 
-      // 只要发现新设备，立即刷新 UI，确保新设备毫秒级展示
       if (hasNewDevice) {
         flushDeviceList();
       }
@@ -229,7 +307,7 @@ export default function Index() {
   }, []);
 
   /**
-   * 🌟 定时批量合并刷新 UI，避免蓝牙广播高频触发 setData
+   * 🌟 定时批量合并刷新 UI，避免高频 setData
    */
   useEffect(() => {
     const timer = setInterval(() => {
@@ -252,7 +330,7 @@ export default function Index() {
 
         const isWeak = d.RSSI < -85;
         const checkTimeout = isWeak ? 2000 : 3000;
-        const maxMiss = isWeak ? 2 : 3; // 弱信号 4s 未见加速淘汰，强信号容忍至 ~9s
+        const maxMiss = isWeak ? 2 : 3;
 
         if (now - d.lastSeen > checkTimeout) {
           d.missCount++;
@@ -275,27 +353,49 @@ export default function Index() {
     return () => clearInterval(timer);
   }, [flushDeviceList]);
 
-  /** ✅ RSSI CHECK FOR CONNECTED DEVICES */
+  /** ✅ RSSI CHECK & REAL-TIME UPDATE FOR CONNECTED DEVICES */
   useEffect(() => {
     const timer = setInterval(async () => {
-      for (const deviceId of connectedSet.current) {
+      if (connectedSet.current.size === 0) return;
+      let changed = false;
+
+      for (const deviceId of Array.from(connectedSet.current)) {
         try {
-          await Taro.getBLEDeviceRSSI({ deviceId });
-        } catch {
+          const res = await Taro.getBLEDeviceRSSI({ deviceId });
+          if (res && typeof res.RSSI === "number") {
+            const dev = deviceMapRef.current.get(deviceId);
+            if (dev && dev.RSSI !== res.RSSI) {
+              dev.RSSI = res.RSSI;
+              dev.lastSeen = Date.now();
+              changed = true;
+            }
+          }
+        } catch (err) {
+          console.warn("⚠️ 获取已连接设备 RSSI 失败，可能已断开:", deviceId, err);
           removeDevice(deviceId);
         }
       }
-    }, 2000);
+
+      if (changed) {
+        isDirtyRef.current = true;
+        flushDeviceList();
+      }
+    }, 1200);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [flushDeviceList]);
 
   /** ✅ REMOVE DEVICE */
   const removeDevice = (deviceId: string) => {
     connectedSet.current.delete(deviceId);
+    connectingSet.current.delete(deviceId);
     writtenSet.current.delete(deviceId);
     deviceMapRef.current.delete(deviceId);
     lastUpdateTimeMapRef.current.delete(deviceId);
+
+    connectQueueRef.current = connectQueueRef.current.filter(
+      (id) => id !== deviceId
+    );
 
     setNotifyMap((prev) => {
       if (!prev[deviceId]) return prev;
@@ -308,103 +408,23 @@ export default function Index() {
     flushDeviceList();
   };
 
-  /** ✅ WRITE A951 */
-  const writeA951 = async (deviceId: string, hex: string) => {
-    const buffer = new Uint8Array(
-      hex.match(/.{2}/g)!.map((b) => parseInt(b, 16))
-    ).buffer;
-
-    try {
-      const services = await BLEService.getServices(deviceId);
-      const svc = services.find((s) => s.uuid.toUpperCase().includes("A950"));
-      if (!svc) return;
-
-      const chars = await BLEService.getCharacteristics(deviceId, svc.uuid);
-      const writeChar = chars.find((c) =>
-        c.uuid.toUpperCase().includes("A951")
-      );
-      if (!writeChar) return;
-
-      await BLEService.write(deviceId, svc.uuid, writeChar.uuid, buffer);
-    } catch (err) {
-      console.log("⚠️ Write Failed:", deviceId, err);
-    }
-  };
-
-  /** ✅ WRITE MODE */
+  /** ✅ 极速模式切换 (直接利用内存缓存，0ms GATT 探测耗时) */
   const writeMode = async (modeKey: string) => {
     const mode = LIGHT_MODES[modeKey];
     if (!mode) return;
 
+    const buffer = parseHexBuffer(mode.hex);
     const tasks: Promise<any>[] = [];
     for (const deviceId of connectedSet.current) {
-      tasks.push(writeA951(deviceId, mode.hex));
+      tasks.push(
+        BLEService.fastWrite(deviceId, buffer).catch((err) => {
+          console.log("Write error:", deviceId, err);
+        })
+      );
     }
 
     await Promise.all(tasks);
     setWhiteMode(modeKey);
-  };
-
-  /** ✅ CONNECT */
-  const handleConnect = async (deviceId: string) => {
-    if (connectedSet.current.has(deviceId)) return;
-
-    if (connectedSet.current.size >= 8) {
-      Taro.showToast({
-        title: "已达到最大连接数 (8)",
-        icon: "none",
-      });
-      return;
-    }
-
-    try {
-      // 停止扫描以减少无线电干扰加速连接
-      await Taro.stopBluetoothDevicesDiscovery();
-
-      await BLEService.connect(deviceId);
-      connectedSet.current.add(deviceId);
-
-      await enableNotify(deviceId);
-
-      if (autoConnectRef.current && !writtenSet.current.has(deviceId)) {
-        writtenSet.current.add(deviceId);
-
-        const mode = currentModeRef.current;
-        if (mode === "LOOP") {
-          startLoop();
-        } else if (mode && LIGHT_MODES[mode]) {
-          writeA951(deviceId, LIGHT_MODES[mode].hex);
-        }
-      }
-
-      isDirtyRef.current = true;
-      flushDeviceList();
-    } catch (err) {
-      console.warn("Connection sequence failed:", err);
-      removeDevice(deviceId);
-    } finally {
-      // 恢复高灵敏度扫描
-      await BLEService.startDiscovery();
-    }
-  };
-
-  /** ✅ ENABLE NOTIFY */
-  const enableNotify = async (deviceId: string) => {
-    const services = await BLEService.getServices(deviceId);
-    if (!services) return;
-
-    const svc = services.find(
-      (s) => s.uuid.includes("FFF0") || s.uuid.includes("A950")
-    );
-    if (!svc) return;
-
-    const chars = await BLEService.getCharacteristics(deviceId, svc.uuid);
-    const notifyChar = chars.find(
-      (c) => c.uuid.includes("FFF1") || c.uuid.includes("A952")
-    );
-    if (!notifyChar) return;
-
-    await BLEService.notify(deviceId, svc.uuid, notifyChar.uuid);
   };
 
   /** ✅ TOGGLE AUTO MODE */
@@ -421,11 +441,12 @@ export default function Index() {
       );
 
       for (const dev of targets) {
-        await handleConnect(dev.deviceId);
+        handleConnect(dev.deviceId);
       }
     } else {
       setAutoModeRunning(false);
       setAutoConnectEnabled(false);
+      connectQueueRef.current = [];
 
       for (const deviceId of Array.from(connectedSet.current)) {
         try {
@@ -500,7 +521,7 @@ export default function Index() {
       {/* Header Section */}
       <View className="header">
         <View className="title">BLE Device Manager</View>
-        <View className="subtitle">多设备批量控制 & 智能分级扫描</View>
+        <View className="subtitle">多设备极速连接 & 智能分级控制</View>
       </View>
 
       {/* Control Section */}
@@ -514,7 +535,7 @@ export default function Index() {
             <View
               className={`status ${autoModeRunning ? "active" : "inactive"}`}
             >
-              {autoModeRunning ? "正在自动连接并配置设备..." : "手动模式"}
+              {autoModeRunning ? "正在极速自动连接与配置..." : "手动模式"}
             </View>
           </View>
           <View
@@ -609,7 +630,7 @@ export default function Index() {
               textAlign: "center",
             }}
           >
-            仅自动连接信号强于 {rssiThreshold} dBm 的设备 (新设备与强信号优先)
+            仅自动连接信号强于 {rssiThreshold} dBm 的设备 (新设备与强信号优先极速接入)
           </Text>
         </View>
 
@@ -671,6 +692,7 @@ export default function Index() {
           height={380}
           itemRender={(item: BLEDevice) => {
             const isConnected = connectedSet.current.has(item.deviceId);
+            const isConnecting = connectingSet.current.has(item.deviceId);
             const rssiLevel =
               item.RSSI >= -65 ? "good" : item.RSSI >= -80 ? "fair" : "poor";
             const rssiLabel =
@@ -689,7 +711,9 @@ export default function Index() {
                   <View className="card-top">
                     <View className="device-info">
                       <View className="icon-box">
-                        <Text>{isConnected ? "🔗" : "📡"}</Text>
+                        <Text>
+                          {isConnected ? "🔗" : isConnecting ? "⏳" : "📡"}
+                        </Text>
                       </View>
                       <View className="text-info">
                         <View className="name-row">
@@ -720,21 +744,15 @@ export default function Index() {
                     ) : (
                       <View
                         className="action-btn btn-connect"
+                        style={{
+                          opacity: isConnecting ? 0.7 : 1,
+                        }}
                         onClick={() => handleConnect(item.deviceId)}
                       >
-                        连接设备
+                        {isConnecting ? "正在快速连接..." : "连接设备"}
                       </View>
                     )}
                   </View>
-
-                  {isConnected && notifyMap[item.deviceId] && (
-                    <View className="log-console">
-                      <Text className="log-label">Notification Data</Text>
-                      <Text className="log-content">
-                        {notifyMap[item.deviceId]}
-                      </Text>
-                    </View>
-                  )}
                 </View>
               </View>
             );
