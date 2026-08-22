@@ -5,3 +5,7 @@ deploy_versions/
 node_modules/
 .DS_Store
 .swc
+*.key
+preview-qrcode.jpg
+preview.jpg
+
