@@ -28,12 +28,14 @@ class BLEService {
     }
   }
 
-  async startDiscovery() {
+  async startDiscovery(options?: Taro.startBluetoothDevicesDiscovery.Option) {
     try {
       await Taro.startBluetoothDevicesDiscovery({
         allowDuplicatesKey: true,
+        powerLevel: "high",
+        ...options,
       })
-      console.log("✅ 开始扫描设备")
+      console.log("✅ 开始扫描设备 (高功率/高灵敏度)")
     } catch (err) {
       console.error("❌ 扫描失败", err)
     }

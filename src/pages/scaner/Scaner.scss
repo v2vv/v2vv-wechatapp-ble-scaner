@@ -279,11 +279,26 @@ $shadow-md: 0 6px 16px rgba(0, 0, 0, 0.06);
       }
 
       .text-info {
+        .name-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
         .name {
           font-size: 14px;
           font-weight: 700;
           color: #1f2937;
           margin-bottom: 0;
+        }
+        .new-badge {
+          font-size: 9px;
+          font-weight: 800;
+          color: #fff;
+          background: linear-gradient(135deg, #ff4d4f, #ff7875);
+          padding: 1px 5px;
+          border-radius: 4px;
+          letter-spacing: 0.5px;
+          box-shadow: 0 1px 4px rgba(255, 77, 79, 0.3);
         }
         .id {
           font-size: 10px;
@@ -296,13 +311,33 @@ $shadow-md: 0 6px 16px rgba(0, 0, 0, 0.06);
     }
 
     .rssi-box {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+
       text {
         font-weight: 700;
         font-size: 12px;
       }
-      &.good text { color: $success-color; }
-      &.fair text { color: $warning-color; }
-      &.poor text { color: $error-color; }
+      .signal-tag {
+        font-size: 9px;
+        padding: 1px 4px;
+        border-radius: 4px;
+        font-weight: 600;
+      }
+      &.good {
+        text { color: $success-color; }
+        .signal-tag { background: #f6ffed; color: $success-color; }
+      }
+      &.fair {
+        text { color: $warning-color; }
+        .signal-tag { background: #fffbe6; color: $warning-color; }
+      }
+      &.poor {
+        text { color: $error-color; }
+        .signal-tag { background: #fff1f0; color: $error-color; }
+      }
     }
   }
 

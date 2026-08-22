@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import Taro from "@tarojs/taro";
 import { View, Text, Slider } from "@tarojs/components";
 import BLEService from "../../lib/bluetooth/bleService";
@@ -11,6 +11,7 @@ interface BLEDevice {
   RSSI: number;
   lastSeen: number;
   missCount: number;
+  firstSeen: number;
 }
 
 export default function Index() {
@@ -19,12 +20,17 @@ export default function Index() {
   const [autoConnectEnabled, setAutoConnectEnabled] = useState(false);
   const [autoModeRunning, setAutoModeRunning] = useState(false);
 
-  const [whiteMode, setWhiteMode] = useState(null);
+  const [whiteMode, setWhiteMode] = useState<string | null>(null);
 
-  const connectedSet = useRef(new Set());
-  const writtenSet = useRef(new Set());
+  const connectedSet = useRef<Set<string>>(new Set());
+  const writtenSet = useRef<Set<string>>(new Set());
   const autoConnectRef = useRef(false);
   const currentModeRef = useRef<string | null>(null); // 'LOOP' or modeKey
+
+  // 内存设备池与动态节流控制
+  const deviceMapRef = useRef<Map<string, BLEDevice>>(new Map());
+  const lastUpdateTimeMapRef = useRef<Map<string, number>>(new Map());
+  const isDirtyRef = useRef(false);
 
   // RSSI Limit State
   const [rssiThreshold, setRssiThreshold] = useState(-58);
@@ -40,7 +46,10 @@ export default function Index() {
   const LOOP_COLORS = ["red", "green", "blue", "full"]; // Order: Red, Green, Blue, White
 
   /** ✅ LIGHT MODE COMMANDS */
-  const LIGHT_MODES = {
+  const LIGHT_MODES: Record<
+    string,
+    { name: string; color: string; hex: string; bg: string }
+  > = {
     static: {
       name: "静态白灯",
       color: "#1677ff", // Blue
@@ -62,19 +71,19 @@ export default function Index() {
     red: {
       name: "红色灯光",
       color: "#ff4d4f", // Red
-      hex: "55AA083700ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff00016464010000",
+      hex: "55AA083700ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff00016464010000",
       bg: "linear-gradient(135deg, #ff7875 0%, #d9363e 100%)",
     },
     green: {
       name: "绿色灯光",
       color: "#52c41a", // Green
-      hex: "55AA0837ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000016464010000",
+      hex: "55AA0837ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000016464010000",
       bg: "linear-gradient(135deg, #95de64 0%, #52c41a 100%)",
     },
     blue: {
       name: "蓝色灯光",
       color: "#2f54eb", // Geekblue
-      hex: "55AA08370000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff016464010000",
+      hex: "55AA08370000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff0000ff016464010000",
       bg: "linear-gradient(135deg, #597ef7 0%, #2f54eb 100%)",
     },
   };
@@ -84,14 +93,46 @@ export default function Index() {
   }, [autoConnectEnabled]);
 
   useEffect(() => {
-    return () => clearInterval(loopTimerRef.current);
+    return () => {
+      if (loopTimerRef.current) clearInterval(loopTimerRef.current);
+    };
   }, []);
 
-  useEffect(() => {
-    initBLE();
+  /**
+   * 🌟 动态计算基于信号强度的更新节流时间 (ms)
+   * 强信号/新设备高频扫描，弱信号大幅降低刷新频次以释放系统与渲染性能
+   */
+  const getThrottleInterval = (rssi: number) => {
+    if (rssi >= -65) return 350; // 强信号：350ms 极速响应
+    if (rssi >= -80) return 1200; // 中等信号：1.2s 适度刷新
+    if (rssi >= -95) return 3500; // 弱信号：3.5s 低频刷新
+    return 6000; // 极弱噪声：6s 极低频刷新
+  };
+
+  /**
+   * 🌟 批量同步设备列表到 React 状态（按信号强度优先排序）
+   */
+  const flushDeviceList = useCallback(() => {
+    if (!isDirtyRef.current) return;
+    isDirtyRef.current = false;
+
+    // 智能优先级排序：
+    // 1. 已连接置顶
+    // 2. 强信号排前 (RSSI 降序)
+    // 3. 相同信号下新设备排前
+    const list = Array.from(deviceMapRef.current.values()).sort((a, b) => {
+      const aConn = connectedSet.current.has(a.deviceId);
+      const bConn = connectedSet.current.has(b.deviceId);
+      if (aConn && !bConn) return -1;
+      if (!aConn && bConn) return 1;
+      if (b.RSSI !== a.RSSI) return b.RSSI - a.RSSI;
+      return b.lastSeen - a.lastSeen;
+    });
+
+    setDeviceList(list);
   }, []);
 
-  /** ✅ BLE INIT */
+  /** ✅ BLE INIT & SMART DISCOVERY */
   const initBLE = async () => {
     await BLEService.initBluetooth();
     await BLEService.startDiscovery();
@@ -99,31 +140,79 @@ export default function Index() {
     BLEService.onDisconnect((deviceId) => removeDevice(deviceId));
 
     BLEService.onDeviceFound((devices) => {
-      setDeviceList((prev) => {
-        const list = [...prev];
+      const now = Date.now();
+      let hasNewDevice = false;
 
-        devices.forEach((d) => {
-          if (!d.name?.startsWith("632")) return;
+      devices.forEach((d) => {
+        if (!d.name?.startsWith("632")) return;
 
-          d.lastSeen = Date.now();
-          d.missCount = 0;
+        const id = d.deviceId;
+        const existing = deviceMapRef.current.get(id);
+        const lastUpdated = lastUpdateTimeMapRef.current.get(id) || 0;
 
-          const exists = list.find((i) => i.deviceId === d.deviceId);
+        if (!existing) {
+          // 🚀 1. 重点捕获新设备：0 延迟立即加入并同步
+          const newDev: BLEDevice = {
+            deviceId: id,
+            name: d.name,
+            RSSI: d.RSSI,
+            lastSeen: now,
+            missCount: 0,
+            firstSeen: now,
+          };
 
-          if (!exists) {
-            list.push(d);
-            if (autoConnectRef.current && d.RSSI >= rssiThresholdRef.current) {
-              handleConnect(d.deviceId);
-            }
-          } else {
-            exists.RSSI = d.RSSI;
-            exists.lastSeen = Date.now();
-            exists.missCount = 0;
+          deviceMapRef.current.set(id, newDev);
+          lastUpdateTimeMapRef.current.set(id, now);
+          hasNewDevice = true;
+          isDirtyRef.current = true;
+
+          // 自动连接逻辑：新设备如果达到信号阈值，立即连接
+          if (autoConnectRef.current && d.RSSI >= rssiThresholdRef.current) {
+            handleConnect(id);
           }
-        });
+        } else {
+          // 🚀 2. 已有设备：分级节流控制（降低弱信号频次，加速强信号/信号跃升设备）
+          const oldRssi = existing.RSSI;
+          const rssiJump = d.RSSI - oldRssi;
+          const throttleInterval = getThrottleInterval(d.RSSI);
+          const timeElapsed = now - lastUpdated;
+          const isConnected = connectedSet.current.has(id);
 
-        return [...list];
+          // 内存保活时间刷新
+          existing.lastSeen = now;
+          existing.missCount = 0;
+
+          // 判定是否符合更新条件：
+          // - 达到该设备信号强度对应的节流周期
+          // - 信号突然大幅增强 (>= 10 dBm，说明设备靠近)
+          // - 已连接设备保持 500ms 响应
+          if (
+            timeElapsed >= throttleInterval ||
+            rssiJump >= 10 ||
+            (isConnected && timeElapsed >= 500)
+          ) {
+            existing.RSSI = d.RSSI;
+            existing.name = d.name || existing.name;
+            lastUpdateTimeMapRef.current.set(id, now);
+            isDirtyRef.current = true;
+
+            // 若设备原先较弱，靠近后达标且开启自动连接，立即触发连接
+            if (
+              autoConnectRef.current &&
+              !connectedSet.current.has(id) &&
+              oldRssi < rssiThresholdRef.current &&
+              d.RSSI >= rssiThresholdRef.current
+            ) {
+              handleConnect(id);
+            }
+          }
+        }
       });
+
+      // 只要发现新设备，立即刷新 UI，确保新设备毫秒级展示
+      if (hasNewDevice) {
+        flushDeviceList();
+      }
     });
 
     BLEService.onNotify((res) => {
@@ -135,31 +224,58 @@ export default function Index() {
     });
   };
 
-  /** ✅ CONNECTIONS WATCHDOG */
+  useEffect(() => {
+    initBLE();
+  }, []);
+
+  /**
+   * 🌟 定时批量合并刷新 UI，避免蓝牙广播高频触发 setData
+   */
+  useEffect(() => {
+    const timer = setInterval(() => {
+      flushDeviceList();
+    }, 250);
+
+    return () => clearInterval(timer);
+  }, [flushDeviceList]);
+
+  /**
+   * 🌟 分级老化与弱设备快速淘汰机制
+   */
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
+      let changed = false;
 
-      setDeviceList((prev) =>
-        prev.filter((d) => {
-          if (connectedSet.current.has(d.deviceId)) return true;
+      deviceMapRef.current.forEach((d, id) => {
+        if (connectedSet.current.has(id)) return;
 
-          if (now - d.lastSeen > 2000) d.missCount++;
+        const isWeak = d.RSSI < -85;
+        const checkTimeout = isWeak ? 2000 : 3000;
+        const maxMiss = isWeak ? 2 : 3; // 弱信号 4s 未见加速淘汰，强信号容忍至 ~9s
 
-          if (d.missCount >= 3) {
-            removeDevice(d.deviceId);
-            return false;
-          }
+        if (now - d.lastSeen > checkTimeout) {
+          d.missCount++;
+        }
 
-          return true;
-        })
-      );
-    }, 2000);
+        if (d.missCount >= maxMiss) {
+          deviceMapRef.current.delete(id);
+          lastUpdateTimeMapRef.current.delete(id);
+          removeDevice(id);
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        isDirtyRef.current = true;
+        flushDeviceList();
+      }
+    }, 1500);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [flushDeviceList]);
 
-  /** ✅ RSSI CHECK */
+  /** ✅ RSSI CHECK FOR CONNECTED DEVICES */
   useEffect(() => {
     const timer = setInterval(async () => {
       for (const deviceId of connectedSet.current) {
@@ -175,23 +291,27 @@ export default function Index() {
   }, []);
 
   /** ✅ REMOVE DEVICE */
-  const removeDevice = (deviceId) => {
+  const removeDevice = (deviceId: string) => {
     connectedSet.current.delete(deviceId);
     writtenSet.current.delete(deviceId);
+    deviceMapRef.current.delete(deviceId);
+    lastUpdateTimeMapRef.current.delete(deviceId);
 
     setNotifyMap((prev) => {
+      if (!prev[deviceId]) return prev;
       const m = { ...prev };
       delete m[deviceId];
       return m;
     });
 
-    setDeviceList((prev) => prev.filter((d) => d.deviceId !== deviceId));
+    isDirtyRef.current = true;
+    flushDeviceList();
   };
 
   /** ✅ WRITE A951 */
-  const writeA951 = async (deviceId, hex) => {
+  const writeA951 = async (deviceId: string, hex: string) => {
     const buffer = new Uint8Array(
-      hex.match(/.{2}/g).map((b) => parseInt(b, 16))
+      hex.match(/.{2}/g)!.map((b) => parseInt(b, 16))
     ).buffer;
 
     try {
@@ -212,11 +332,11 @@ export default function Index() {
   };
 
   /** ✅ WRITE MODE */
-  const writeMode = async (modeKey) => {
+  const writeMode = async (modeKey: string) => {
     const mode = LIGHT_MODES[modeKey];
     if (!mode) return;
 
-    const tasks = [];
+    const tasks: Promise<any>[] = [];
     for (const deviceId of connectedSet.current) {
       tasks.push(writeA951(deviceId, mode.hex));
     }
@@ -226,7 +346,7 @@ export default function Index() {
   };
 
   /** ✅ CONNECT */
-  const handleConnect = async (deviceId) => {
+  const handleConnect = async (deviceId: string) => {
     if (connectedSet.current.has(deviceId)) return;
 
     if (connectedSet.current.size >= 8) {
@@ -238,7 +358,7 @@ export default function Index() {
     }
 
     try {
-      // 停止扫描以通过减少无线电干扰加速连接
+      // 停止扫描以减少无线电干扰加速连接
       await Taro.stopBluetoothDevicesDiscovery();
 
       await BLEService.connect(deviceId);
@@ -246,7 +366,6 @@ export default function Index() {
 
       await enableNotify(deviceId);
 
-      // Fix: Use ref to avoid stale closure issues in callbacks
       if (autoConnectRef.current && !writtenSet.current.has(deviceId)) {
         writtenSet.current.add(deviceId);
 
@@ -254,21 +373,23 @@ export default function Index() {
         if (mode === "LOOP") {
           startLoop();
         } else if (mode && LIGHT_MODES[mode]) {
-          // Apply current static color to the new device
           writeA951(deviceId, LIGHT_MODES[mode].hex);
         }
       }
+
+      isDirtyRef.current = true;
+      flushDeviceList();
     } catch (err) {
       console.warn("Connection sequence failed:", err);
-      removeDevice(deviceId); // Cleanup if failed
+      removeDevice(deviceId);
     } finally {
-      // 恢复扫描
-      await Taro.startBluetoothDevicesDiscovery({ allowDuplicatesKey: true });
+      // 恢复高灵敏度扫描
+      await BLEService.startDiscovery();
     }
   };
 
   /** ✅ ENABLE NOTIFY */
-  const enableNotify = async (deviceId) => {
+  const enableNotify = async (deviceId: string) => {
     const services = await BLEService.getServices(deviceId);
     if (!services) return;
 
@@ -292,13 +413,15 @@ export default function Index() {
       setAutoModeRunning(true);
       setAutoConnectEnabled(true);
 
-      for (const dev of deviceList) {
-        if (
+      const targets = Array.from(deviceMapRef.current.values()).filter(
+        (dev) =>
           dev.name?.startsWith("632") &&
-          dev.RSSI >= rssiThresholdRef.current
-        ) {
-          await handleConnect(dev.deviceId);
-        }
+          dev.RSSI >= rssiThresholdRef.current &&
+          !connectedSet.current.has(dev.deviceId)
+      );
+
+      for (const dev of targets) {
+        await handleConnect(dev.deviceId);
       }
     } else {
       setAutoModeRunning(false);
@@ -314,7 +437,7 @@ export default function Index() {
   };
 
   /** ✅ DISCONNECT */
-  const handleDisconnect = async (deviceId) => {
+  const handleDisconnect = async (deviceId: string) => {
     await BLEService.disconnect(deviceId);
     removeDevice(deviceId);
   };
@@ -337,8 +460,6 @@ export default function Index() {
 
   /** ✅ STOP LOOP */
   const stopLoop = () => {
-    // Note: We don't clear currentModeRef here because we might want to stay on the last color
-    // But for explicit manual control, we'll override it in handleManualMode
     if (loopTimerRef.current) {
       clearInterval(loopTimerRef.current);
       loopTimerRef.current = null;
@@ -347,7 +468,7 @@ export default function Index() {
   };
 
   /** ✅ MANUAL MODE CLICK */
-  const handleManualModeClick = (key) => {
+  const handleManualModeClick = (key: string) => {
     stopLoop();
     currentModeRef.current = key;
     writeMode(key);
@@ -362,12 +483,24 @@ export default function Index() {
     }
   };
 
+  // 统计当前强信号设备数量 (>= -65 dBm)
+  const strongCount = useMemo(() => {
+    return deviceList.filter((d) => d.RSSI >= -65).length;
+  }, [deviceList]);
+
+  // 过滤显示列表
+  const filteredList = useMemo(() => {
+    return deviceList.filter(
+      (d) => d.RSSI >= rssiThreshold || connectedSet.current.has(d.deviceId)
+    );
+  }, [deviceList, rssiThreshold]);
+
   return (
     <View className="scaner-page">
       {/* Header Section */}
       <View className="header">
         <View className="title">BLE Device Manager</View>
-        <View className="subtitle">多设备批量控制 & 自动化测试</View>
+        <View className="subtitle">多设备批量控制 & 智能分级扫描</View>
       </View>
 
       {/* Control Section */}
@@ -476,7 +609,7 @@ export default function Index() {
               textAlign: "center",
             }}
           >
-            仅自动连接信号强于 {rssiThreshold} dBm 的设备
+            仅自动连接信号强于 {rssiThreshold} dBm 的设备 (新设备与强信号优先)
           </Text>
         </View>
 
@@ -526,21 +659,27 @@ export default function Index() {
       {/* Device List Section */}
       <View className="device-list-card">
         <View className="list-header-bar">
-          <View>发现设备 ({deviceList.length})</View>
+          <View>
+            发现: {deviceList.length} (强信号: {strongCount})
+          </View>
           <View>已连接: {Array.from(connectedSet.current).length}</View>
         </View>
 
         <VirtualList
-          list={deviceList.filter(
-            (d) =>
-              d.RSSI >= rssiThreshold || connectedSet.current.has(d.deviceId)
-          )}
+          list={filteredList}
           itemHeight={110}
           height={380}
           itemRender={(item: BLEDevice) => {
             const isConnected = connectedSet.current.has(item.deviceId);
             const rssiLevel =
-              item.RSSI > -60 ? "good" : item.RSSI > -80 ? "fair" : "poor";
+              item.RSSI >= -65 ? "good" : item.RSSI >= -80 ? "fair" : "poor";
+            const rssiLabel =
+              item.RSSI >= -65
+                ? "强信号"
+                : item.RSSI >= -80
+                ? "中等"
+                : "弱信号";
+            const isJustDiscovered = Date.now() - (item.firstSeen || 0) < 5000;
 
             return (
               <View className="device-item-container" key={item.deviceId}>
@@ -553,14 +692,20 @@ export default function Index() {
                         <Text>{isConnected ? "🔗" : "📡"}</Text>
                       </View>
                       <View className="text-info">
-                        <View className="name">
-                          {item.name || "Unknown Device"}
+                        <View className="name-row">
+                          <View className="name">
+                            {item.name || "Unknown Device"}
+                          </View>
+                          {isJustDiscovered && (
+                            <View className="new-badge">NEW</View>
+                          )}
                         </View>
                         <View className="id">{item.deviceId}</View>
                       </View>
                     </View>
                     <View className={`rssi-box ${rssiLevel}`}>
-                      <Text>📶 {item.RSSI}</Text>
+                      <Text>📶 {item.RSSI} dBm</Text>
+                      <View className="signal-tag">{rssiLabel}</View>
                     </View>
                   </View>
 
